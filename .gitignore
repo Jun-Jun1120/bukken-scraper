@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+credentials.json
+bukken-*.json
+*.egg-info/
+dist/
+build/
+output/data.json
+output/data_backup.json
+output/*.csv
+output/report.html
+.claude/
+output/*.log
