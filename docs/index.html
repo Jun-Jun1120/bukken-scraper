@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>物件ダッシュボード</title>
+<style>
+:root {
+  --bg: #f5f5f7; --card: #fff; --text: #1d1d1f; --muted: #6e6e73;
+  --border: #e5e5ea; --accent: #0071e3; --green: #34c759; --red: #ff3b30;
+  --orange: #ff9500; --yellow: #ffcc00; --purple: #af52de;
+  --radius: 14px; --shadow: 0 2px 8px rgba(0,0,0,.06);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  background: var(--bg); color: var(--text); line-height: 1.6; -webkit-font-smoothing: antialiased;
+}
+
+/* Header */
+.header {
+  background: rgba(255,255,255,.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 24px; position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+}
+.header h1 { font-size: 20px; font-weight: 700; letter-spacing: -.3px; }
+.header-actions { display: flex; gap: 8px; align-items: center; }
+.btn {
+  padding: 9px 20px; border-radius: 20px; border: none; font-size: 14px;
+  font-weight: 600; cursor: pointer; transition: all .2s;
+}
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: #0077ed; transform: scale(1.02); }
+.btn-primary:disabled { background: #99caff; cursor: not-allowed; transform: none; }
+.btn-outline { background: rgba(0,0,0,.04); color: var(--text); border: 1px solid var(--border); }
+.btn-outline:hover { background: rgba(0,0,0,.08); }
+.status-text { font-size: 13px; color: var(--muted); max-width: 260px; text-align: right; }
+
+/* Layout */
+.main { max-width: 1100px; margin: 0 auto; padding: 20px; }
+
+/* Stats */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.stat-card {
+  background: white; padding: 14px 12px; border-radius: var(--radius);
+  box-shadow: var(--shadow); text-align: center;
+}
+.stat-val { font-size: 24px; font-weight: 800; letter-spacing: -.5px; }
+.stat-lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+/* Filters */
+.filters {
+  background: white; border-radius: var(--radius); padding: 16px 20px;
+  box-shadow: var(--shadow); margin-bottom: 14px;
+}
+.filters-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+.filter-group { display: flex; flex-direction: column; gap: 4px; }
+.filter-group label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.filter-group select, .filter-group input {
+  padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 8px;
+  font-size: 14px; background: white; color: var(--text); min-width: 100px; transition: border-color .2s;
+}
+.filter-group select:focus, .filter-group input:focus { outline: none; border-color: var(--accent); }
+.filter-group input[type="number"] { width: 80px; }
+
+/* Prefs bar */
+.prefs-bar {
+  background: linear-gradient(135deg, #f0f7ff, #fef1f7); border-radius: var(--radius);
+  padding: 12px 18px; margin-bottom: 14px; display: none; align-items: center; gap: 10px;
+  box-shadow: var(--shadow);
+}
+.prefs-bar.visible { display: flex; }
+.prefs-bar .prefs-icon { font-size: 18px; }
+.prefs-bar .prefs-text { font-size: 13px; color: #4b5563; }
+.prefs-bar .prefs-count { font-weight: 700; color: var(--accent); }
+
+/* Sort + count bar */
+.toolbar {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 12px; flex-wrap: wrap; gap: 8px;
+}
+.result-count { font-size: 14px; color: var(--text); font-weight: 600; }
+.sort-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+.sort-btn {
+  padding: 6px 14px; border-radius: 20px; border: 1.5px solid var(--border);
+  background: white; font-size: 13px; cursor: pointer; color: var(--muted); font-weight: 600;
+  transition: all .15s;
+}
+.sort-btn:hover { border-color: var(--accent); color: var(--accent); }
+.sort-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+.per-page select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+
+/* Station filter checkboxes */
+.st-check { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; font-size: 13px; user-select: none; }
+.st-check input { margin: 0; cursor: pointer; }
+.st-check .st-rank { font-size: 10px; font-weight: 800; margin-left: 1px; }
+.st-check .st-count { font-size: 11px; color: var(--muted); }
+.st-section { width: 100%; font-size: 11px; font-weight: 700; color: var(--muted); margin-top: 6px; padding-bottom: 2px; border-bottom: 1px solid var(--border); }
+.st-section:first-child { margin-top: 0; }
+.st-actions { display: flex; gap: 8px; margin-bottom: 6px; }
+.st-actions button { font-size: 11px; color: var(--accent); background: none; border: none; cursor: pointer; font-weight: 600; padding: 0; }
+.st-actions button:hover { text-decoration: underline; }
+
+/* Cards list */
+.cards { display: flex; flex-direction: column; gap: 12px; }
+
+/* Card */
+.card {
+  background: white; border-radius: var(--radius); padding: 0;
+  box-shadow: var(--shadow); cursor: pointer; transition: all .2s;
+  overflow: hidden; border: 1px solid transparent;
+}
+.card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.1); border-color: var(--border); }
+.card-border { height: 4px; width: 100%; }
+.card-body { padding: 18px 22px; }
+.card-top { display: flex; gap: 14px; align-items: start; }
+.card-info { flex: 1; min-width: 0; }
+.card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+.card-name { font-size: 16px; font-weight: 700; letter-spacing: -.2px; }
+.card-address { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.card-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.meta-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 4px 10px; border-radius: 6px; font-size: 13px; font-weight: 600;
+  background: #f0f0f2; color: var(--text);
+}
+.meta-chip.rent { background: #fff0f0; color: var(--red); font-weight: 700; font-size: 15px; }
+.card-station { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 450px; }
+
+/* Card comment preview */
+.card-comment {
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid #ebebed;
+}
+.card-pros-cons { display: flex; gap: 16px; font-size: 13px; margin-bottom: 8px; flex-wrap: wrap; }
+.card-pros-cons .pro { color: #059669; font-weight: 500; }
+.card-pros-cons .con { color: #dc2626; font-weight: 500; }
+.card-pros-cons .pro::before { content: "\\2713 "; font-weight: 700; }
+.card-pros-cons .con::before { content: "\\2717 "; font-weight: 700; }
+.card-comment-text {
+  font-size: 13px; color: #4b5563; line-height: 1.7;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* Score area */
+.card-score-area { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; gap: 4px; min-width: 70px; }
+.like-btn {
+  background: none; border: none; font-size: 22px; cursor: pointer;
+  padding: 2px 6px; border-radius: 50%; transition: all .2s; line-height: 1;
+}
+.like-btn:hover { background: #fef2f2; transform: scale(1.3); }
+.like-btn.liked { color: var(--red); }
+.like-btn:not(.liked) { color: #d1d5db; }
+.score-circle {
+  width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  flex-direction: column; font-weight: 800; font-size: 22px; line-height: 1;
+}
+.score-circle small { font-size: 10px; font-weight: 600; opacity: .6; }
+.badge {
+  display: inline-block; padding: 3px 10px; border-radius: 6px;
+  font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.station-rank {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 800; letter-spacing: .3px;
+}
+.rank-S { background: #fef3c7; color: #92400e; }
+.rank-A { background: #dbeafe; color: #1e40af; }
+.rank-B { background: #e5e7eb; color: #374151; }
+.rank-C { background: #f3f4f6; color: #9ca3af; }
+
+/* Card image */
+.card-img {
+  width: 110px; height: 82px; object-fit: cover; border-radius: 10px;
+  flex-shrink: 0; background: var(--bg);
+}
+.card-img-placeholder {
+  width: 110px; height: 82px; border-radius: 10px; flex-shrink: 0;
+  background: #f0f0f2; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 24px;
+}
+
+/* Detail modal */
+.overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200;
+  display: none; align-items: start; justify-content: center; padding: 40px 20px;
+  overflow-y: auto; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+.overlay.open { display: flex; }
+.detail {
+  background: white; border-radius: 20px; max-width: 760px; width: 100%;
+  padding: 32px; position: relative; animation: slideUp .25s ease;
+}
+@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.detail-close {
+  position: absolute; top: 16px; right: 16px; background: var(--bg);
+  border: none; width: 36px; height: 36px; border-radius: 50%;
+  font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: background .2s;
+}
+.detail-close:hover { background: #e5e5ea; }
+.detail h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; padding-right: 40px; letter-spacing: -.3px; }
+.detail .address { color: var(--muted); font-size: 14px; margin-bottom: 16px; }
+.detail-img {
+  width: 100%; max-height: 300px; object-fit: cover; border-radius: 14px;
+  margin-bottom: 16px; background: var(--bg);
+}
+.detail-score-bar {
+  display: flex; align-items: center; gap: 20px; padding: 20px;
+  border-radius: 14px; margin-bottom: 20px;
+}
+.detail-score { font-size: 52px; font-weight: 800; line-height: 1; letter-spacing: -1px; }
+.detail-score-max { font-size: 16px; color: var(--muted); }
+
+.detail-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px; margin-bottom: 20px;
+}
+.detail-item {
+  padding: 10px 12px; background: #fafafa; border-radius: 10px;
+}
+.detail-item .d-label { font-size: 12px; color: var(--muted); font-weight: 600; }
+.detail-item .d-value { font-size: 16px; font-weight: 700; margin-top: 4px; }
+.detail-item .d-value.total { color: var(--red); }
+.detail-station { font-size: 14px; color: #374151; margin-bottom: 16px; padding: 12px 16px; background: #fafafa; border-radius: 10px; line-height: 1.6; }
+.detail-features { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; }
+.detail-features .tag { background: #f0f0f2; padding: 5px 12px; border-radius: 8px; font-size: 13px; color: #374151; }
+
+/* Pros / Cons - much better visibility */
+.detail-eval { margin-bottom: 20px; }
+.detail-eval h3 { font-size: 16px; font-weight: 700; margin-bottom: 12px; letter-spacing: -.2px; }
+.detail-pros-cons { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+.pros-card, .cons-card {
+  padding: 14px 16px; border-radius: 12px;
+}
+.pros-card { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.cons-card { background: #fef2f2; border: 1px solid #fecaca; }
+.pros-card h4 { font-size: 14px; color: #166534; margin-bottom: 10px; font-weight: 700; }
+.cons-card h4 { font-size: 14px; color: #991b1b; margin-bottom: 10px; font-weight: 700; }
+.pros-card ul, .cons-card ul { list-style: none; }
+.pros-card li { color: #15803d; font-size: 14px; padding: 4px 0; line-height: 1.6; }
+.cons-card li { color: #b91c1c; font-size: 14px; padding: 4px 0; line-height: 1.6; }
+.pros-card li::before { content: "\2713\00a0"; font-weight: 700; }
+.cons-card li::before { content: "\2717\00a0"; font-weight: 700; }
+
+/* AI Comment - prominent */
+.detail-comment {
+  padding: 20px 22px; border-radius: 14px; font-size: 15px;
+  line-height: 1.8; color: #1f2937; margin-bottom: 24px;
+  border-left: 4px solid var(--accent); background: #f8fafc;
+}
+.detail-comment-label {
+  font-size: 12px; font-weight: 700; color: var(--accent);
+  margin-bottom: 8px;
+}
+.detail-link { text-align: right; }
+.detail-link a {
+  display: inline-block; padding: 10px 20px; border-radius: 10px;
+  background: var(--accent); color: white; text-decoration: none; font-weight: 600; font-size: 14px;
+  transition: background .2s;
+}
+.detail-link a:hover { background: #0077ed; }
+.source-badge {
+  display: inline-block; padding: 3px 10px; border-radius: 6px;
+  font-size: 12px; font-weight: 700; letter-spacing: .3px;
+}
+
+/* Pagination */
+.pagination { display: flex; justify-content: center; gap: 4px; margin-top: 20px; }
+.page-btn {
+  padding: 6px 12px; border: 1.5px solid var(--border); border-radius: 8px;
+  background: white; cursor: pointer; font-size: 13px; transition: all .15s;
+}
+.page-btn:hover { border-color: var(--accent); }
+.page-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+.page-btn:disabled { opacity: .3; cursor: not-allowed; }
+
+/* Empty state */
+.empty { text-align: center; padding: 80px 20px; color: var(--muted); }
+.empty-icon { font-size: 48px; margin-bottom: 16px; }
+.empty p { font-size: 14px; }
+
+/* Responsive */
+@media (max-width: 640px) {
+  .card-top { flex-direction: column; }
+  .card-img, .card-img-placeholder { width: 100%; height: 160px; }
+  .detail-pros-cons { grid-template-columns: 1fr; }
+  .card-pros-cons { flex-direction: column; gap: 4px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>物件ダッシュボード</h1>
+  <div class="header-actions">
+    <span class="status-text" id="status">毎朝7時に自動更新</span>
+  </div>
+</div>
+
+<div class="main">
+  <div class="stats" id="stats"></div>
+
+  <div class="filters">
+    <div class="filters-row">
+      <div class="filter-group">
+        <label>家賃（万円）</label>
+        <div style="display:flex;gap:4px;align-items:center">
+          <input type="number" id="f-rent-min" placeholder="下限" step="0.5" min="0">
+          <span style="color:var(--muted)">〜</span>
+          <input type="number" id="f-rent-max" placeholder="上限" step="0.5">
+        </div>
+      </div>
+      <div class="filter-group">
+        <label>間取り</label>
+        <select id="f-layout">
+          <option value="">すべて</option>
+          <option>ワンルーム</option><option>1K</option><option>1DK</option><option>1LDK</option><option>2K</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>スコア</label>
+        <select id="f-score">
+          <option value="">すべて</option>
+          <option value="70">70+</option><option value="50">50+</option><option value="30">30+</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>サイト</label>
+        <select id="f-source">
+          <option value="">すべて</option>
+          <option value="suumo">SUUMO</option><option value="chintai">CHINTAI</option>
+          <option value="door">DOOR</option><option value="yahoo">Yahoo!</option>
+          <option value="smocca">スモッカ</option><option value="homes">HOME'S</option>
+          <option value="athome">athome</option><option value="athome会員">athome会員</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>面積(m2)</label>
+        <div style="display:flex;gap:4px;align-items:center">
+          <input type="number" id="f-area-min" placeholder="下限" step="1" min="0">
+          <span style="color:var(--muted)">〜</span>
+          <input type="number" id="f-area-max" placeholder="上限" step="1">
+        </div>
+      </div>
+      <div class="filter-group">
+        <label>&nbsp;</label>
+        <button class="btn btn-outline" id="btn-reset" style="font-size:12px;padding:6px 14px">リセット</button>
+      </div>
+    </div>
+    <div id="station-filter" style="margin-top:12px;display:none">
+      <label style="font-size:12px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:8px" id="station-toggle">
+        駅で絞り込み <span style="font-size:10px" id="station-arrow">&#9660;</span>
+        <span id="station-selected-count" style="font-size:11px;color:var(--accent);font-weight:700"></span>
+      </label>
+      <div id="station-checks" style="display:none;flex-wrap:wrap;gap:4px 8px;max-height:200px;overflow-y:auto;padding:8px 0"></div>
+    </div>
+  </div>
+
+
+  <div class="toolbar">
+    <div class="result-count" id="result-count"></div>
+    <div class="sort-btns">
+      <button class="sort-btn active" data-key="score" data-dir="desc">スコア高</button>
+      <button class="sort-btn" data-key="total_rent" data-dir="asc">家賃安</button>
+      <button class="sort-btn" data-key="total_rent" data-dir="desc">家賃高</button>
+      <button class="sort-btn" data-key="area_sqm" data-dir="desc">広い</button>
+      <button class="sort-btn" data-key="year_built_num" data-dir="desc">築浅</button>
+      <button class="sort-btn" data-key="walk_min" data-dir="asc">駅近</button>
+      <button class="sort-btn" data-key="scraped_at" data-dir="desc">新着</button>
+    </div>
+    <div class="per-page">
+      <select id="per-page">
+        <option value="10">10件</option><option value="20" selected>20件</option>
+        <option value="50">50件</option><option value="999">全件</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="cards" id="cards"></div>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<!-- Detail modal -->
+<div class="overlay" id="overlay">
+  <div class="detail" id="detail"></div>
+</div>
+
+<script>
+let allData = [];
+let filtered = [];
+let sortKey = 'score', sortDir = 'desc';
+let currentPage = 1;
+
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// Station rank mapping
+const STATION_RANKS = {
+  S: ['北参道'],
+  A: ['明治神宮前','渋谷','南新宿','代々木','表参道','国立競技場','原宿','代々木公園','参宮橋','初台','千駄ヶ谷','千駄ケ谷'],
+  B: ['信濃町','六本木','神泉','代々木八幡','恵比寿','青山一丁目','幡ヶ谷','代官山','代々木上原'],
+};
+function getStationRank(stationStr) {
+  if (!stationStr) return null;
+  for (const [rank, stations] of Object.entries(STATION_RANKS)) {
+    for (const st of stations) {
+      if (stationStr.includes(st)) return rank;
+    }
+  }
+  return 'C';
+}
+function rankBadge(rank) {
+  if (!rank) return '';
+  const labels = { S: 'S', A: 'A', B: 'B', C: 'C' };
+  return `<span class="station-rank rank-${rank}">${labels[rank]}ランク</span>`;
+}
+
+// Colors
+function scoreColor(s) {
+  if (s >= 75) return '#34c759';
+  if (s >= 55) return '#ff9500';
+  if (s >= 35) return '#ff9500';
+  return '#ff3b30';
+}
+function scoreBg(s) {
+  if (s >= 75) return '#f0fdf4';
+  if (s >= 55) return '#fffbeb';
+  if (s >= 35) return '#fff7ed';
+  return '#fef2f2';
+}
+function sourceColor(s) {
+  const m = { suumo: '#22c55e', homes: '#3b82f6', athome: '#a855f7', chintai: '#f59e0b',
+    door: '#06b6d4', yahoo: '#ef4444', smocca: '#ec4899', 'athome会員': '#8b5cf6' };
+  return m[s] || '#6b7280';
+}
+function recBadge(r) {
+  const m = {
+    '強くおすすめ': ['#dcfce7','#166534'],
+    'おすすめ': ['#dcfce7','#15803d'],
+    '普通': ['#fef9c3','#854d0e'],
+    '微妙': ['#fed7aa','#9a3412'],
+    'おすすめしない': ['#fecaca','#991b1b'],
+  };
+  const [bg,c] = m[r] || ['#f3f4f6','#374151'];
+  return `<span class="badge" style="background:${bg};color:${c}">${esc(r)}</span>`;
+}
+function rentText(yen) {
+  const man = yen / 10000;
+  return man % 1 === 0 ? man + '万円' : man.toFixed(1) + '万円';
+}
+
+// Extract station name from station_access string
+function extractStations(stationStr) {
+  if (!stationStr) return [];
+  const stations = [];
+  // Match patterns like "初台駅", "京王新線/初台駅 歩5分", "三軒茶屋/東急田園都市線"
+  const parts = stationStr.split(/[/／]/);
+  for (const part of parts) {
+    const m = part.match(/「?([^\s「」]+?)」?駅/);
+    if (m) {
+      stations.push(m[1].replace(/^.*線\s*/, '').trim());
+    }
+  }
+  // Also try simpler pattern for "○○駅 歩Xm" format
+  if (stations.length === 0) {
+    const m2 = stationStr.match(/([^\s/／]+?)駅/g);
+    if (m2) {
+      for (const s of m2) {
+        const name = s.replace('駅', '').replace(/.*線\s*/, '').replace(/[「」]/g, '').trim();
+        if (name && !stations.includes(name)) stations.push(name);
+      }
+    }
+  }
+  return stations;
+}
+
+let stationFilterOpen = false;
+let selectedStations = new Set(); // empty = all
+
+function buildStationFilter() {
+  const container = $('#station-filter');
+  const checks = $('#station-checks');
+  if (!allData.length) { container.style.display = 'none'; return; }
+  container.style.display = 'block';
+
+  // Count stations
+  const counts = {};
+  for (const p of allData) {
+    for (const st of extractStations(p.station_access)) {
+      counts[st] = (counts[st] || 0) + 1;
+    }
+  }
+
+  // Group by rank
+  const rankGroups = { S: [], A: [], B: [], C: [] };
+  const stationList = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  for (const [name, count] of stationList) {
+    const rank = getStationRank(name + '駅') || getStationRank(name) || 'C';
+    const actualRank = STATION_RANKS.S?.some(s => name.includes(s) || s.includes(name)) ? 'S'
+      : STATION_RANKS.A?.some(s => name.includes(s) || s.includes(name)) ? 'A'
+      : STATION_RANKS.B?.some(s => name.includes(s) || s.includes(name)) ? 'B' : 'C';
+    rankGroups[actualRank].push([name, count]);
+  }
+
+  let html = '<div class="st-actions"><button onclick="selectAllStations()">すべて選択</button><button onclick="clearAllStations()">すべて解除</button><button onclick="selectRankStations(\'S\')">Sのみ</button><button onclick="selectRankStations(\'SA\')">S+A</button></div>';
+  const rankLabels = { S: 'Sランク', A: 'Aランク', B: 'Bランク', C: 'その他' };
+  const rankColors = { S: '#92400e', A: '#1e40af', B: '#374151', C: '#9ca3af' };
+  for (const rank of ['S', 'A', 'B', 'C']) {
+    if (rankGroups[rank].length === 0) continue;
+    html += `<div class="st-section">${rankLabels[rank]}</div>`;
+    for (const [name, count] of rankGroups[rank]) {
+      const checked = selectedStations.size === 0 || selectedStations.has(name) ? 'checked' : '';
+      html += `<label class="st-check"><input type="checkbox" value="${esc(name)}" ${checked} onchange="onStationChange()"><span>${esc(name)}</span><span class="st-rank" style="color:${rankColors[rank]}">${rank}</span><span class="st-count">(${count})</span></label>`;
+    }
+  }
+  checks.innerHTML = html;
+  updateStationCount();
+}
+
+// Store all station names for rank selection
+function getAllStationNames() {
+  return [...$('#station-checks').querySelectorAll('input[type=checkbox]')].map(cb => cb.value);
+}
+function selectAllStations() {
+  selectedStations.clear();
+  $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = true);
+  onStationChange();
+}
+function clearAllStations() {
+  selectedStations.clear();
+  $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = false);
+  // When all unchecked, treat as "select specific ones"
+  onStationChange();
+}
+function selectRankStations(ranks) {
+  const wantedRanks = ranks.split('');
+  $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => {
+    const rankEl = cb.parentElement.querySelector('.st-rank');
+    const rank = rankEl ? rankEl.textContent.trim() : 'C';
+    cb.checked = wantedRanks.includes(rank);
+  });
+  onStationChange();
+}
+function onStationChange() {
+  const all = $('#station-checks').querySelectorAll('input[type=checkbox]');
+  const checked = [...all].filter(cb => cb.checked);
+  if (checked.length === all.length || checked.length === 0) {
+    selectedStations.clear(); // all or none = no filter
+  } else {
+    selectedStations = new Set(checked.map(cb => cb.value));
+  }
+  updateStationCount();
+  applyFilters();
+}
+function updateStationCount() {
+  const el = $('#station-selected-count');
+  if (selectedStations.size > 0) {
+    el.textContent = `(${selectedStations.size}駅選択中)`;
+  } else {
+    el.textContent = '';
+  }
+}
+
+// Toggle station filter panel
+$('#station-toggle').addEventListener('click', () => {
+  stationFilterOpen = !stationFilterOpen;
+  $('#station-checks').style.display = stationFilterOpen ? 'flex' : 'none';
+  $('#station-arrow').textContent = stationFilterOpen ? '\u25B2' : '\u25BC';
+});
+
+// Fetch (static mode - load from data.json)
+async function loadData() {
+  try {
+    const res = await fetch('data.json');
+    allData = await res.json();
+    $('#status').textContent = `${allData.length}件 | 毎朝7時に自動更新`;
+  } catch (e) {
+    $('#status').textContent = 'データ読み込み失敗';
+    allData = [];
+  }
+  buildStationFilter();
+  applyFilters();
+}
+
+// Stats
+function renderStats() {
+  const d = filtered;
+  if (!d.length) { $('#stats').innerHTML = ''; return; }
+  const best = Math.max(...d.map(p => p.score));
+  const avg = Math.round(d.reduce((a, p) => a + p.score, 0) / d.length);
+  const cheapest = Math.min(...d.map(p => p.total_rent));
+  const sources = [...new Set(d.map(p => p.source))].length;
+  $('#stats').innerHTML = `
+    <div class="stat-card"><div class="stat-val">${d.length}</div><div class="stat-lbl">物件数</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:${scoreColor(best)}">${best}</div><div class="stat-lbl">最高スコア</div></div>
+    <div class="stat-card"><div class="stat-val">${rentText(cheapest)}</div><div class="stat-lbl">最安家賃</div></div>
+    <div class="stat-card"><div class="stat-val">${avg}</div><div class="stat-lbl">平均スコア</div></div>
+    <div class="stat-card"><div class="stat-val">${sources}</div><div class="stat-lbl">サイト数</div></div>
+  `;
+}
+
+// Filters
+function applyFilters() {
+  const rentMin = parseFloat($('#f-rent-min').value) * 10000 || 0;
+  const rentMax = parseFloat($('#f-rent-max').value) * 10000 || Infinity;
+  const layout = $('#f-layout').value;
+  const scoreMin = parseInt($('#f-score').value) || 0;
+  const source = $('#f-source').value;
+  const areaMin = parseFloat($('#f-area-min').value) || 0;
+  const areaMax = parseFloat($('#f-area-max').value) || Infinity;
+  filtered = allData.filter(p => {
+    if (p.total_rent < rentMin || p.total_rent > rentMax) return false;
+    if (layout && !p.layout.includes(layout)) return false;
+    if (p.score < scoreMin) return false;
+    if (source && p.source !== source) return false;
+    if (p.area_sqm < areaMin || p.area_sqm > areaMax) return false;
+    // Station filter
+    if (selectedStations.size > 0) {
+      const propStations = extractStations(p.station_access);
+      if (!propStations.some(s => selectedStations.has(s))) return false;
+    }
+    return true;
+  });
+  currentPage = 1;
+  applySort();
+}
+
+function getSortVal(p, key) {
+  if (key === 'year_built_num') {
+    // "2024年3月" -> 202403, "新築" -> 999999
+    const yb = p.year_built || '';
+    if (yb.includes('新築')) return 999999;
+    const m = yb.match(/(\d{4})\D*(\d{1,2})?/);
+    return m ? parseInt(m[1]) * 100 + parseInt(m[2] || '1') : 0;
+  }
+  if (key === 'walk_min') {
+    // "初台駅 歩5分" -> 5
+    const m = (p.station_access || '').match(/(\d+)\s*分/);
+    return m ? parseInt(m[1]) : 99;
+  }
+  if (key === 'scraped_at') {
+    return p.scraped_at || '0';
+  }
+  return p[key] || 0;
+}
+
+function applySort() {
+  filtered.sort((a, b) => {
+    const va = getSortVal(a, sortKey);
+    const vb = getSortVal(b, sortKey);
+    if (typeof va === 'string') {
+      return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+    }
+    return sortDir === 'asc' ? va - vb : vb - va;
+  });
+  renderStats();
+  renderCards();
+}
+
+// Cards
+function renderCards() {
+  const perPage = parseInt($('#per-page').value);
+  const totalPages = Math.ceil(filtered.length / perPage);
+  if (currentPage > totalPages) currentPage = totalPages || 1;
+  const start = (currentPage - 1) * perPage;
+  const page = filtered.slice(start, start + perPage);
+
+  $('#result-count').textContent = filtered.length
+    ? `${filtered.length}件中 ${start + 1}–${Math.min(start + perPage, filtered.length)}件`
+    : '0件';
+
+  if (!page.length) {
+    $('#cards').innerHTML = '<div class="empty"><div class="empty-icon">&#127968;</div><p>物件が見つかりません<br>フィルタを変更するか、スクレイピングしてください</p></div>';
+    $('#pagination').innerHTML = '';
+    return;
+  }
+
+  $('#cards').innerHTML = page.map((p, i) => {
+    const rank = getStationRank(p.station_access);
+    const pro1 = (p.pros || [])[0] || '';
+    const con1 = (p.cons || [])[0] || '';
+    const comment = p.comment || '';
+    return `
+    <div class="card" onclick="showDetail(${start + i})">
+      <div class="card-border" style="background:${scoreColor(p.score)}"></div>
+      <div class="card-body">
+        <div class="card-top">
+          ${p.image_url ? `<img class="card-img" src="${esc(p.image_url)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=card-img-placeholder>&#127968;</div>'">` : '<div class="card-img-placeholder">&#127968;</div>'}
+          <div class="card-info">
+            <div class="card-header">
+              <span class="source-badge" style="background:${sourceColor(p.source)}18;color:${sourceColor(p.source)}">${esc(p.source)}</span>
+              ${rankBadge(rank)}
+              <span class="card-name">${esc(p.name)}</span>
+            </div>
+            <div class="card-address">${esc(p.address)}</div>
+            <div class="card-meta">
+              <span class="meta-chip rent">${rentText(p.total_rent)}/月</span>
+              <span class="meta-chip">${esc(p.layout || '-')}</span>
+              <span class="meta-chip">${p.area_sqm}m&sup2;</span>
+              <span class="meta-chip">${esc(p.year_built || '-')}</span>
+            </div>
+            <div class="card-station">${esc(p.station_access)}</div>
+          </div>
+          <div class="card-score-area">
+            <div class="score-circle" style="background:${scoreBg(p.score)};color:${scoreColor(p.score)}">
+              ${p.score}<small>/100</small>
+            </div>
+            ${recBadge(p.recommendation)}
+          </div>
+        </div>
+        ${(pro1 || con1 || comment) ? `
+        <div class="card-comment">
+          ${(pro1 || con1) ? `<div class="card-pros-cons">
+            ${pro1 ? `<span class="pro">${esc(pro1)}</span>` : ''}
+            ${con1 ? `<span class="con">${esc(con1)}</span>` : ''}
+          </div>` : ''}
+          ${comment ? `<div class="card-comment-text">${esc(comment)}</div>` : ''}
+        </div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Pagination
+  if (totalPages <= 1) { $('#pagination').innerHTML = ''; return; }
+  let ph = `<button class="page-btn" onclick="goPage(${currentPage-1})" ${currentPage===1?'disabled':''}>&#8249;</button>`;
+  for (let i = 1; i <= totalPages; i++) {
+    if (totalPages > 7 && i > 2 && i < totalPages - 1 && Math.abs(i - currentPage) > 1) {
+      if (i === 3 || i === totalPages - 2) ph += '<span style="padding:0 4px;color:#ccc">...</span>';
+      continue;
+    }
+    ph += `<button class="page-btn ${i===currentPage?'active':''}" onclick="goPage(${i})">${i}</button>`;
+  }
+  ph += `<button class="page-btn" onclick="goPage(${currentPage+1})" ${currentPage===totalPages?'disabled':''}>&#8250;</button>`;
+  $('#pagination').innerHTML = ph;
+}
+
+function goPage(n) { currentPage = n; renderCards(); window.scrollTo({ top: 300, behavior: 'smooth' }); }
+
+// Detail
+function showDetail(idx) {
+  const p = filtered[idx];
+  if (!p) return;
+  const rank = getStationRank(p.station_access);
+  const pros = (p.pros || []).map(x => `<li>${esc(x)}</li>`).join('') || '<li style="color:#9ca3af">情報なし</li>';
+  const cons = (p.cons || []).map(x => `<li>${esc(x)}</li>`).join('') || '<li style="color:#9ca3af">情報なし</li>';
+  const feats = (p.features || []).map(f => `<span class="tag">${esc(f)}</span>`).join('');
+
+  $('#detail').innerHTML = `
+    <button class="detail-close" onclick="closeDetail()">&#10005;</button>
+    ${p.image_url ? `<img class="detail-img" src="${esc(p.image_url)}" alt="" onerror="this.style.display='none'">` : ''}
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+      <span class="source-badge" style="background:${sourceColor(p.source)}18;color:${sourceColor(p.source)}">${esc(p.source)}</span>
+      ${rankBadge(rank)}
+    </div>
+    <h2>${esc(p.name)}</h2>
+    <div class="address">${esc(p.address)}</div>
+    <div class="detail-score-bar" style="background:${scoreBg(p.score)}">
+      <div class="detail-score" style="color:${scoreColor(p.score)}">${p.score}<span class="detail-score-max">/100</span></div>
+      <div>${recBadge(p.recommendation)}<br><span style="font-size:11px;color:var(--muted)">AI評価</span></div>
+    </div>
+    <div class="detail-grid">
+      <div class="detail-item"><span class="d-label">家賃</span><span class="d-value">${rentText(p.rent)}</span></div>
+      <div class="detail-item"><span class="d-label">管理費</span><span class="d-value">${p.management_fee ? p.management_fee.toLocaleString() + '円' : '-'}</span></div>
+      <div class="detail-item"><span class="d-label">合計</span><span class="d-value total">${rentText(p.total_rent)}</span></div>
+      <div class="detail-item"><span class="d-label">敷金</span><span class="d-value">${p.deposit ? p.deposit.toLocaleString() + '円' : 'なし'}</span></div>
+      <div class="detail-item"><span class="d-label">礼金</span><span class="d-value">${p.key_money ? p.key_money.toLocaleString() + '円' : 'なし'}</span></div>
+      <div class="detail-item"><span class="d-label">間取り</span><span class="d-value">${esc(p.layout || '-')}</span></div>
+      <div class="detail-item"><span class="d-label">面積</span><span class="d-value">${p.area_sqm}m&sup2;</span></div>
+      <div class="detail-item"><span class="d-label">階数</span><span class="d-value">${esc(p.floor || '-')}</span></div>
+      <div class="detail-item"><span class="d-label">構造</span><span class="d-value">${esc(p.building_type || '-')}</span></div>
+      <div class="detail-item"><span class="d-label">築年</span><span class="d-value">${esc(p.year_built || '-')}</span></div>
+      <div class="detail-item"><span class="d-label">向き</span><span class="d-value">${esc(p.direction || '-')}</span></div>
+    </div>
+    <div class="detail-station"><strong>最寄り駅:</strong> ${esc(p.station_access)}</div>
+    ${feats ? '<div class="detail-features">' + feats + '</div>' : ''}
+    <div class="detail-eval">
+      <h3>AI分析</h3>
+      <div class="detail-pros-cons">
+        <div class="pros-card"><h4>良い点</h4><ul>${pros}</ul></div>
+        <div class="cons-card"><h4>気になる点</h4><ul>${cons}</ul></div>
+      </div>
+      ${p.comment ? `<div class="detail-comment"><div class="detail-comment-label">AIコメント</div>${esc(p.comment)}</div>` : ''}
+    </div>
+    <div class="detail-link"><a href="${esc(p.url)}" target="_blank">物件サイトで詳細を見る</a></div>
+  `;
+  $('#overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeDetail() { $('#overlay').classList.remove('open'); document.body.style.overflow = ''; }
+$('#overlay').addEventListener('click', e => { if (e.target === $('#overlay')) closeDetail(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
+
+// Sort buttons
+$$('.sort-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $$('.sort-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    sortKey = btn.dataset.key; sortDir = btn.dataset.dir;
+    applySort();
+  });
+});
+
+// Filter listeners
+['#f-rent-min','#f-rent-max','#f-layout','#f-score','#f-source','#f-area-min','#f-area-max'].forEach(s => {
+  $(s).addEventListener('input', applyFilters);
+});
+$('#per-page').addEventListener('change', renderCards);
+$('#btn-reset').addEventListener('click', () => {
+  ['#f-rent-min','#f-rent-max','#f-area-min','#f-area-max'].forEach(s => $(s).value = '');
+  ['#f-layout','#f-score','#f-source'].forEach(s => $(s).value = '');
+  selectedStations.clear();
+  $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = true);
+  updateStationCount();
+  applyFilters();
+});
+
+// Init
+loadData();
+</script>
+</body>
+</html>
