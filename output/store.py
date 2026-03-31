@@ -56,24 +56,63 @@ def _save_all(data: list[dict]) -> None:
 
 
 def save_results(results: list[tuple[Property, Evaluation]]) -> int:
-    """Save results to JSON store, deduplicating by URL. Returns new count."""
+    """Save results, accumulating across runs.
+
+    - New properties are added
+    - Existing properties get their scores/evaluations updated
+    - Properties no longer in results (delisted) are removed
+    - Liked/disliked status is preserved across updates
+    """
     existing = load_all()
-    existing_urls = {p["url"] for p in existing}
+    existing_by_url = {p["url"]: p for p in existing}
+    likes_urls = _load_likes_urls()
+    dislikes_urls = _load_dislikes_urls()
 
-    new_items = [
-        _to_dict(prop, ev)
-        for prop, ev in results
-        if prop.url not in existing_urls
-    ]
+    # Build new result set
+    current_urls: set[str] = set()
+    new_count = 0
+    updated_count = 0
+    merged: list[dict] = []
 
-    if not new_items:
-        logger.info("No new properties to save")
-        return 0
+    for prop, ev in results:
+        current_urls.add(prop.url)
+        item = _to_dict(prop, ev)
 
-    all_items = existing + new_items
-    _save_all(all_items)
-    logger.info("Saved %d new properties (total: %d)", len(new_items), len(all_items))
-    return len(new_items)
+        # Preserve liked/disliked status
+        old = existing_by_url.get(prop.url)
+        if old:
+            item["liked"] = old.get("liked", False)
+            item["scraped_at"] = old.get("scraped_at", item["scraped_at"])
+            updated_count += 1
+        else:
+            new_count += 1
+
+        # Apply likes/dislikes from synced files
+        if prop.url in likes_urls:
+            item["liked"] = True
+        if prop.url in dislikes_urls:
+            item["disliked"] = True
+
+        merged.append(item)
+
+    # Keep liked/disliked properties even if delisted (user explicitly marked)
+    kept_delisted = 0
+    for old in existing:
+        url = old.get("url", "")
+        if url not in current_urls:
+            if old.get("liked") or url in likes_urls:
+                old["delisted"] = True
+                merged.append(old)
+                kept_delisted += 1
+            # Otherwise: property is delisted and not liked → drop it
+
+    _save_all(merged)
+    removed = len(existing) - updated_count - kept_delisted
+    logger.info(
+        "Store: %d new, %d updated, %d removed (delisted), %d kept (liked+delisted), total: %d",
+        new_count, updated_count, max(0, removed), kept_delisted, len(merged),
+    )
+    return new_count
 
 
 def load_all() -> list[dict]:

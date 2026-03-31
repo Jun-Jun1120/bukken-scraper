@@ -101,7 +101,26 @@ async def _run_pipeline_async(
     if before != len(properties):
         logger.info("Filtered out %d female-only properties", before - len(properties))
 
-    # 1.6. Filter by building age
+    # 1.6. Filter by building structure (RC/SRC only)
+    if config.search.structures:
+        _allowed = {s.upper() for s in config.search.structures}
+        _before = len(properties)
+
+        def _is_allowed_structure(p):
+            bt = (p.building_type or "").upper()
+            if not bt:
+                return True  # 構造不明は残す
+            return any(s in bt for s in _allowed)
+
+        properties = [p for p in properties if _is_allowed_structure(p)]
+        _filtered = _before - len(properties)
+        if _filtered:
+            logger.info(
+                "Filtered out %d non-%s properties",
+                _filtered, "/".join(_allowed),
+            )
+
+    # 1.7. Filter by building age
     if config.search.max_age_years > 0:
         import re as _re
         _current_year = __import__("datetime").datetime.now().year
