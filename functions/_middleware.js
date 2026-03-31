@@ -1,6 +1,3 @@
-const AUTH_USER = "bukken";
-const AUTH_PASS = "shibuya2026dt";
-
 function unauthorized() {
   return new Response("Unauthorized", {
     status: 401,
@@ -9,6 +6,13 @@ function unauthorized() {
 }
 
 export async function onRequest(context) {
+  const AUTH_USER = context.env.AUTH_USER || "bukken";
+  const AUTH_PASS = context.env.AUTH_PASS;
+
+  if (!AUTH_PASS) {
+    return context.next();
+  }
+
   const auth = context.request.headers.get("Authorization");
   if (!auth || !auth.startsWith("Basic ")) {
     return unauthorized();
