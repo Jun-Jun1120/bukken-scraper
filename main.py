@@ -101,6 +101,29 @@ async def _run_pipeline_async(
     if before != len(properties):
         logger.info("Filtered out %d female-only properties", before - len(properties))
 
+    # 1.6. Filter by building age
+    if config.search.max_age_years > 0:
+        import re as _re
+        _current_year = __import__("datetime").datetime.now().year
+        _before = len(properties)
+
+        def _within_age(p):
+            yb = p.year_built or ""
+            if "新築" in yb:
+                return True
+            m = _re.search(r"(\d{4})", yb)
+            if not m:
+                return True  # 築年数不明は残す
+            return _current_year - int(m.group(1)) <= config.search.max_age_years
+
+        properties = [p for p in properties if _within_age(p)]
+        _filtered = _before - len(properties)
+        if _filtered:
+            logger.info(
+                "Filtered out %d properties older than %d years",
+                _filtered, config.search.max_age_years,
+            )
+
     # 2. Distance filter (3km from Shibuya DT Building)
     properties = await filter_by_distance(properties)
     logger.info("After distance filter: %d properties", len(properties))

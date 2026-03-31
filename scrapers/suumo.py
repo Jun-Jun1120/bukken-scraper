@@ -46,6 +46,9 @@ def _build_search_url(criteria: SearchCriteria) -> str:
     if criteria.city_gas:
         params.append(("tc", "0400501"))
 
+    if criteria.max_age_years > 0:
+        params.append(("cn", str(criteria.max_age_years)))
+
     query = "&".join(f"{k}={v}" for k, v in params)
     return f"{BASE_URL}?{query}&page={{}}"
 

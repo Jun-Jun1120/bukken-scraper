@@ -257,20 +257,37 @@ async def evaluate_properties(
     config: AppConfig,
 ) -> list[tuple[Property, Evaluation]]:
     """Evaluate all properties and return sorted by score (descending)."""
+    import asyncio
     import os
     api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
     client = genai.Client(api_key=api_key)
-    results: list[tuple[Property, Evaluation]] = []
 
-    for prop in properties:
-        evaluation = _evaluate_property_sync(client, prop, config)
-        results.append((prop, evaluation))
-        logger.info(
-            "Evaluated %s: score=%d, rec=%s",
-            prop.name,
-            evaluation.score,
-            evaluation.recommendation,
-        )
+    concurrency = 5
+    semaphore = asyncio.Semaphore(concurrency)
+    evaluated_count = 0
+
+    async def _eval_one(prop: Property) -> tuple[Property, Evaluation]:
+        nonlocal evaluated_count
+        async with semaphore:
+            loop = asyncio.get_event_loop()
+            evaluation = await loop.run_in_executor(
+                None, _evaluate_property_sync, client, prop, config,
+            )
+            evaluated_count += 1
+            if evaluated_count % 20 == 0:
+                logger.info(
+                    "Evaluated %d/%d properties...",
+                    evaluated_count, len(properties),
+                )
+            logger.info(
+                "Evaluated %s: score=%d, rec=%s",
+                prop.name,
+                evaluation.score,
+                evaluation.recommendation,
+            )
+            return (prop, evaluation)
+
+    results = await asyncio.gather(*(_eval_one(p) for p in properties))
 
     # Sort by score descending (immutable - returns new list)
     return sorted(results, key=lambda x: x[1].score, reverse=True)

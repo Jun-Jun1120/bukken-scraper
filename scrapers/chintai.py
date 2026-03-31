@@ -23,7 +23,8 @@ AREA_CODES = ["13113", "13110", "13104", "13103"]
 def _build_search_url(area_code: str, criteria: SearchCriteria) -> str:
     rent_min = criteria.rent_min // 10000
     rent_max = criteria.rent_max // 10000
-    return f"{BASE_URL}{area_code}/list/?rent_low={rent_min}&rent_high={rent_max}&page={{}}"
+    age_param = f"&built={criteria.max_age_years}" if criteria.max_age_years > 0 else ""
+    return f"{BASE_URL}{area_code}/list/?rent_low={rent_min}&rent_high={rent_max}{age_param}&page={{}}"
 
 
 async def _safe_val(locator: Locator) -> str:

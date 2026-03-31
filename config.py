@@ -17,7 +17,7 @@ class SearchCriteria:
     rent_max: int = 130000  # 13万円（管理費込み上限、理想は12〜12.5万）
     layouts: tuple[str, ...] = ("1R", "1K", "1DK", "1LDK", "2K")
     structures: tuple[str, ...] = ("RC", "SRC")  # 鉄筋コンクリート, 鉄骨鉄筋コンクリート
-    max_age_years: int = 10  # 築10年以内
+    max_age_years: int = 15  # 築15年以内
     max_walk_minutes: int = 10  # 駅徒歩10分以内
 
     # Must-have conditions

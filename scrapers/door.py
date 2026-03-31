@@ -37,6 +37,9 @@ def _build_search_url(area_slug: str, criteria: SearchCriteria) -> str:
         if code := layout_map.get(layout):
             params.append(f"layout[]={code}")
 
+    if criteria.max_age_years > 0:
+        params.append(f"chikunen={criteria.max_age_years}")
+
     query = "&".join(params)
     return f"{BASE_URL}{area_slug}/list?{query}&page={{}}"
 
