@@ -176,6 +176,13 @@ body {
 }
 .dislike-btn:hover { background: #f3f4f6; transform: scale(1.3); }
 .dislike-btn.disliked { color: var(--muted); opacity: .8; }
+.maybe-btn {
+  background: none; border: none; font-size: 18px; cursor: pointer;
+  padding: 2px 6px; border-radius: 50%; transition: all .2s; line-height: 1; color: #d1d5db;
+}
+.maybe-btn:hover { background: #fffbeb; transform: scale(1.3); }
+.maybe-btn.maybed { color: var(--orange); }
+.reaction-row { display: flex; gap: 2px; justify-content: center; }
 .score-circle {
   width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   flex-direction: column; font-weight: 800; font-size: 22px; line-height: 1;
@@ -539,6 +546,22 @@ const STATION_COORDS = {
   '下北沢': [35.6615, 139.6680],
 };
 
+// Maybe Store (localStorage) - △ 微妙
+const MaybeStore = {
+  KEY: 'bukken-maybes',
+  _load() { try { return new Set(JSON.parse(localStorage.getItem(this.KEY)) || []); } catch { return new Set(); } },
+  _save(s) { localStorage.setItem(this.KEY, JSON.stringify([...s])); },
+  isMaybe(url) { return this._load().has(url); },
+  toggle(url) {
+    const s = this._load(); const maybed = !s.has(url);
+    maybed ? s.add(url) : s.delete(url); this._save(s);
+    if (maybed) { const l = LikesStore._load(); l.delete(url); LikesStore._save(l); const d = DislikesStore._load(); d.delete(url); DislikesStore._save(d); }
+    return maybed;
+  },
+  getAll() { return this._load(); },
+  export() { return [...this._load()]; },
+};
+
 // Notes Store (localStorage)
 const NotesStore = {
   KEY: 'bukken-notes',
@@ -746,8 +769,7 @@ const LikesStore = {
   toggle(url) {
     const s = this._load(); const liked = !s.has(url);
     liked ? s.add(url) : s.delete(url); this._save(s);
-    // Remove from dislikes if liking
-    if (liked) { const d = DislikesStore._load(); d.delete(url); DislikesStore._save(d); }
+    if (liked) { const d = DislikesStore._load(); d.delete(url); DislikesStore._save(d); const m = MaybeStore._load(); m.delete(url); MaybeStore._save(m); }
     return liked;
   },
   getAll() { return this._load(); },
@@ -764,8 +786,7 @@ const DislikesStore = {
   toggle(url) {
     const s = this._load(); const disliked = !s.has(url);
     disliked ? s.add(url) : s.delete(url); this._save(s);
-    // Remove from likes if disliking
-    if (disliked) { const l = LikesStore._load(); l.delete(url); LikesStore._save(l); }
+    if (disliked) { const l = LikesStore._load(); l.delete(url); LikesStore._save(l); const m = MaybeStore._load(); m.delete(url); MaybeStore._save(m); }
     return disliked;
   },
   getAll() { return this._load(); },
@@ -776,10 +797,11 @@ const DislikesStore = {
 async function loadData() {
   const res = await fetch('data.json');
   allData = await res.json();
-  // Merge localStorage likes & dislikes
+  // Merge localStorage likes, maybes & dislikes
   const likes = LikesStore.getAll();
   const dislikes = DislikesStore.getAll();
-  allData.forEach(p => { p.liked = likes.has(p.url); p.disliked = dislikes.has(p.url); });
+  const maybes = MaybeStore.getAll();
+  allData.forEach(p => { p.liked = likes.has(p.url); p.disliked = dislikes.has(p.url); p.maybe = maybes.has(p.url); });
   buildStationFilter();
   applyFilters();
   updatePrefsBar();
@@ -922,16 +944,21 @@ function renderCards() {
             <label class="compare-check" onclick="event.stopPropagation()">
               <input type="checkbox" ${isCompared ? 'checked' : ''} onchange="toggleCompare('${esc(p.url)}', this.checked)">比較
             </label>
-            <button class="like-btn ${p.liked ? 'liked' : ''}" onclick="event.stopPropagation();toggleLike(${start + i})" title="いいね">
-              ${p.liked ? '&#10084;' : '&#9825;'}
-            </button>
+            <div class="reaction-row">
+              <button class="like-btn ${p.liked ? 'liked' : ''}" onclick="event.stopPropagation();toggleLike(${start + i})" title="いいね">
+                ${p.liked ? '&#10084;' : '&#9825;'}
+              </button>
+              <button class="maybe-btn ${p.maybe ? 'maybed' : ''}" onclick="event.stopPropagation();toggleMaybe(${start + i})" title="微妙">
+                ${p.maybe ? '&#9650;' : '&#9651;'}
+              </button>
+              <button class="dislike-btn ${p.disliked ? 'disliked' : ''}" onclick="event.stopPropagation();toggleDislike(${start + i})" title="興味なし">
+                ${p.disliked ? '&#10005;' : '&#10005;'}
+              </button>
+            </div>
             <div class="score-circle" style="background:${scoreBg(p.score)};color:${scoreColor(p.score)}">
               ${p.score}<small>/100</small>
             </div>
             ${recBadge(p.recommendation)}
-            <button class="dislike-btn ${p.disliked ? 'disliked' : ''}" onclick="event.stopPropagation();toggleDislike(${start + i})" title="興味なし">
-              ${p.disliked ? '&#128683;' : '&#128078;'}
-            </button>
           </div>
         </div>
         ${(pro1 || con1 || comment) ? `
@@ -990,8 +1017,11 @@ function showDetail(idx) {
       <button class="like-btn ${p.liked ? 'liked' : ''}" onclick="toggleLike(${idx});showDetail(${idx})" style="font-size:28px" title="いいね">
         ${p.liked ? '&#10084;' : '&#9825;'}
       </button>
+      <button class="maybe-btn ${p.maybe ? 'maybed' : ''}" onclick="toggleMaybe(${idx});showDetail(${idx})" style="font-size:24px" title="微妙">
+        ${p.maybe ? '&#9650;' : '&#9651;'}
+      </button>
       <button class="dislike-btn ${p.disliked ? 'disliked' : ''}" onclick="toggleDislike(${idx});showDetail(${idx})" style="font-size:22px" title="興味なし">
-        ${p.disliked ? '&#128683;' : '&#128078;'}
+        ${p.disliked ? '&#10005;' : '&#10005;'}
       </button>
     </div>
     <h2>${esc(p.name)}</h2>
@@ -1253,14 +1283,25 @@ function toggleLike(idx) {
   renderCards(); renderStats(); updatePrefsBar();
 }
 
+// Maybe (localStorage)
+function toggleMaybe(idx) {
+  const p = filtered[idx]; if (!p) return;
+  const maybed = MaybeStore.toggle(p.url);
+  p.maybe = maybed;
+  if (maybed) { p.liked = false; p.disliked = false; }
+  const orig = allData.find(d => d.url === p.url);
+  if (orig) { orig.maybe = maybed; if (maybed) { orig.liked = false; orig.disliked = false; } }
+  renderCards(); renderStats(); updatePrefsBar();
+}
+
 // Dislike (localStorage)
 function toggleDislike(idx) {
   const p = filtered[idx]; if (!p) return;
   const disliked = DislikesStore.toggle(p.url);
   p.disliked = disliked;
-  if (disliked) p.liked = false;
+  if (disliked) { p.liked = false; p.maybe = false; }
   const orig = allData.find(d => d.url === p.url);
-  if (orig) { orig.disliked = disliked; if (disliked) orig.liked = false; }
+  if (orig) { orig.disliked = disliked; if (disliked) { orig.liked = false; orig.maybe = false; } }
   renderCards(); renderStats(); updatePrefsBar();
 }
 
@@ -1416,13 +1457,14 @@ $('#btn-sync').addEventListener('click', async () => {
   const token = getGhToken(); if (!token) return;
   const likes = LikesStore.export();
   const dislikes = DislikesStore.export();
+  const maybes = MaybeStore.export();
   const notes = NotesStore.getAll();
   try {
     $('#status').textContent = '同期中...';
     const res = await fetch('https://api.github.com/repos/Jun-Jun1120/bukken-scraper/dispatches', {
       method: 'POST',
       headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event_type: 'sync-likes', client_payload: { likes, dislikes, notes } }),
+      body: JSON.stringify({ event_type: 'sync-likes', client_payload: { likes, dislikes, maybes, notes } }),
     });
     if (res.status === 204) {
       $('#status').textContent = `同期完了 (いいね${likes.length}件, 興味なし${dislikes.length}件)`;
@@ -1443,6 +1485,7 @@ $('#btn-export-likes').addEventListener('click', () => {
   const exportData = {
     likes: LikesStore.export(),
     dislikes: DislikesStore.export(),
+    maybes: MaybeStore.export(),
     notes: NotesStore.getAll(),
   };
   const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });

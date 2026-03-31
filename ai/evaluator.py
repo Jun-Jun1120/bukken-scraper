@@ -104,7 +104,24 @@ def _build_liked_context() -> str:
                 cons = "、".join(p.get("cons", [])[:2]) or "不明"
                 lines.append(f"- NG例: {p['name']} ({p.get('total_rent', 0)//10000}万円) → {cons}")
 
-        lines.append("\n**重要: いいね物件の共通パターン（設備・構造・エリア・築年数）に近い物件はスコアを+10〜20点加算。興味なし物件のパターンに該当する場合は-10〜20点減点すること。**")
+        # Maybe (微妙) properties
+        maybe_props = prefs.get("maybe_properties", [])
+        if maybe_props:
+            lines.append("\n### △ 微妙と判断した物件（惜しいが決め手に欠ける）")
+            for p in maybe_props[:5]:
+                pros = "、".join(p.get("pros", [])[:2]) or "不明"
+                cons = "、".join(p.get("cons", [])[:2]) or "不明"
+                lines.append(f"- {p['name']} ({p.get('total_rent', 0)//10000}万円) → 良い点: {pros} / 悪い点: {cons}")
+
+        # User notes (direct feedback)
+        user_notes = prefs.get("user_notes", [])
+        if user_notes:
+            lines.append("\n### ユーザーの直接コメント（最も重要なフィードバック）")
+            for n in user_notes[:10]:
+                lines.append(f"- {n['name']}: 「{n['note']}」")
+            lines.append("**上記コメントの内容を最優先で考慮し、同様の問題がある物件は減点、コメントで評価された特徴がある物件は加点すること。**")
+
+        lines.append("\n**重要: いいね物件の共通パターンに近い物件は+10〜20点。△微妙物件に似た物件は±0〜-5点。興味なし物件のパターンは-10〜20点。ユーザーコメントの指摘は最優先で反映。**")
         return "\n".join(lines)
     except Exception:
         return ""

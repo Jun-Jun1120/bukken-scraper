@@ -14,6 +14,8 @@ JST = timezone(timedelta(hours=9))
 STORE_PATH = Path(__file__).parent / "data.json"
 LIKES_PATH = Path(__file__).parent.parent / "docs" / "likes.json"
 DISLIKES_PATH = Path(__file__).parent.parent / "docs" / "dislikes.json"
+MAYBES_PATH = Path(__file__).parent.parent / "docs" / "maybes.json"
+NOTES_PATH = Path(__file__).parent.parent / "docs" / "notes.json"
 
 
 def _to_dict(prop: Property, ev: Evaluation) -> dict:
@@ -158,6 +160,26 @@ def _load_dislikes_urls() -> set[str]:
     return set()
 
 
+def _load_maybes_urls() -> set[str]:
+    """Load maybe URLs from docs/maybes.json."""
+    if MAYBES_PATH.exists():
+        try:
+            return set(json.loads(MAYBES_PATH.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return set()
+
+
+def _load_notes() -> dict[str, dict]:
+    """Load notes from docs/notes.json."""
+    if NOTES_PATH.exists():
+        try:
+            return json.loads(NOTES_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
 def get_liked() -> list[dict]:
     """Return all liked properties from likes.json or data.json."""
     likes_urls = _load_likes_urls()
@@ -217,13 +239,38 @@ def _extract_year_built(props: list[dict]) -> list[int]:
     return years
 
 
+def get_maybe() -> list[dict]:
+    """Return all maybe (微妙) properties."""
+    maybe_urls = _load_maybes_urls()
+    if not maybe_urls:
+        return []
+    return [p for p in load_all() if p.get("url") in maybe_urls]
+
+
+def get_notes_with_properties() -> list[dict]:
+    """Return properties that have notes, with note text attached."""
+    notes = _load_notes()
+    if not notes:
+        return []
+    all_props = load_all()
+    result = []
+    for p in all_props:
+        url = p.get("url", "")
+        if url in notes:
+            note = notes[url]
+            result.append({**p, "note_text": note.get("text", ""), "note_status": note.get("status", "")})
+    return result
+
+
 def get_preferences() -> dict:
-    """Analyze liked/disliked properties to extract detailed preferences."""
+    """Analyze liked/disliked/maybe properties and notes to extract detailed preferences."""
     liked = get_liked()
     disliked = get_disliked()
+    maybe = get_maybe()
+    noted = get_notes_with_properties()
 
-    if not liked and not disliked:
-        return {"count": 0, "dislike_count": 0, "summary": "まだいいねがありません", "patterns": {}, "dislike_patterns": {}}
+    if not liked and not disliked and not maybe and not noted:
+        return {"count": 0, "dislike_count": 0, "maybe_count": 0, "summary": "まだいいねがありません", "patterns": {}, "dislike_patterns": {}}
 
     # --- Liked patterns ---
     l_rents = [p["total_rent"] for p in liked if p.get("total_rent")]
@@ -285,6 +332,7 @@ def get_preferences() -> dict:
     return {
         "count": len(liked),
         "dislike_count": len(disliked),
+        "maybe_count": len(maybe),
         "summary": "、".join(summary_parts) if summary_parts else "分析中...",
         "patterns": patterns,
         "dislike_patterns": dislike_patterns,
@@ -296,9 +344,18 @@ def get_preferences() -> dict:
              "pros": p.get("pros", []), "cons": p.get("cons", [])}
             for p in liked
         ],
+        "maybe_properties": [
+            {"name": p["name"], "total_rent": p["total_rent"], "layout": p["layout"],
+             "cons": p.get("cons", []), "pros": p.get("pros", [])}
+            for p in maybe[:5]
+        ],
         "disliked_properties": [
             {"name": p["name"], "total_rent": p["total_rent"], "layout": p["layout"],
              "cons": p.get("cons", [])}
             for p in disliked[:5]
+        ],
+        "user_notes": [
+            {"name": n["name"], "note": n["note_text"], "status": n["note_status"]}
+            for n in noted if n.get("note_text")
         ],
     }
