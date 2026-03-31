@@ -1616,7 +1616,7 @@ function toggleMap() {
 
 function initMap() {
   if (mapInstance) return;
-  const dtLat = 35.6590, dtLng = 139.6988;
+  const dtLat = 35.656619, dtLng = 139.697314;
   mapInstance = L.map('map').setView([dtLat, dtLng], 14);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
@@ -1631,7 +1631,7 @@ function initMap() {
       iconSize: [20, 20],
       iconAnchor: [10, 10],
     }),
-  }).addTo(mapInstance).bindPopup('<strong>渋谷DTビル</strong><br>オフィス');
+  }).addTo(mapInstance).bindPopup('<strong>渋谷DTビル</strong><br>道玄坂1-16-10<br>6F〜9F');
 
   // 3km radius circle
   L.circle([dtLat, dtLng], {
@@ -1681,7 +1681,8 @@ function updateMapMarkers() {
         weight: 2,
         fillOpacity: 0.9,
       }).addTo(mapInstance);
-      marker.bindPopup(`<strong>${esc(p.name)}</strong><br>${rentText(p.total_rent)}/月<br>スコア: ${p.score}`);
+      const pIdx = allData.findIndex(d => d.url === p.url);
+      marker.bindPopup(`<strong>${esc(p.name)}</strong><br>${rentText(p.total_rent)}/月 | ${p.score}点<br>${esc(p.layout || '')} ${p.area_sqm}m² ${esc(p.year_built || '')}<br><a href="#" onclick="event.preventDefault();showDetail(${pIdx});return false;" style="color:#0071e3;font-weight:600">詳細を見る &rarr;</a>`);
       mapMarkers.push(marker);
     }
   }

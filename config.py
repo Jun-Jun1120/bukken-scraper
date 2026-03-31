@@ -4,8 +4,8 @@ from dataclasses import dataclass, field
 from typing import Final
 
 # Target location: Shibuya DT Building (渋谷DTビル, 道玄坂1-16-10)
-TARGET_LAT: Final[float] = 35.6590
-TARGET_LNG: Final[float] = 139.6988
+TARGET_LAT: Final[float] = 35.656619
+TARGET_LNG: Final[float] = 139.697314
 SEARCH_RADIUS_KM: Final[float] = 3.0
 
 
