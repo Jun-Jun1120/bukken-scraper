@@ -353,9 +353,11 @@ body {
 .compare-table tr:first-child td { font-weight: 700; font-size: 14px; }
 
 /* Map */
-.map-container { display: none; margin-bottom: 14px; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+.map-container { display: none; margin-bottom: 14px; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); position: relative; z-index: 1; }
 .map-container.visible { display: block; }
 #map { height: 500px; width: 100%; }
+.leaflet-pane { z-index: 1 !important; }
+.leaflet-top, .leaflet-bottom { z-index: 2 !important; }
 
 /* Rent Market Chart */
 .market-chart { display: none; margin-bottom: 14px; background: white; border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
@@ -1681,8 +1683,7 @@ function updateMapMarkers() {
         weight: 2,
         fillOpacity: 0.9,
       }).addTo(mapInstance);
-      const pIdx = allData.findIndex(d => d.url === p.url);
-      marker.bindPopup(`<strong>${esc(p.name)}</strong><br>${rentText(p.total_rent)}/月 | ${p.score}点<br>${esc(p.layout || '')} ${p.area_sqm}m² ${esc(p.year_built || '')}<br><a href="#" onclick="event.preventDefault();showDetail(${pIdx});return false;" style="color:#0071e3;font-weight:600">詳細を見る &rarr;</a>`);
+      marker.bindPopup(`<strong>${esc(p.name)}</strong><br>${rentText(p.total_rent)}/月 | ${p.score}点<br>${esc(p.layout || '')} ${p.area_sqm}m² ${esc(p.year_built || '')}<br><a href="${esc(p.url)}" target="_blank" rel="noopener" style="color:#0071e3;font-weight:600">物件サイトへ &rarr;</a>`);
       mapMarkers.push(marker);
     }
   }
