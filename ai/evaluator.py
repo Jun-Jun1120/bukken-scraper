@@ -144,7 +144,7 @@ def _build_prompt(prop: Property, criteria: SearchCriteria) -> str:
 
 ## 希望条件
 - エリア: 渋谷DTビルから3km圏内（絶対条件）
-- 家賃: {criteria.rent_min // 10000}〜{criteria.rent_max // 10000}万円（管理費込み、理想10〜12万がスイートスポット）
+- 家賃: 手取り30万+補助2万。管理費込み11〜12万がベスト、12.5万以下がスイートスポット、13万が上限
 - 間取り: {', '.join(criteria.layouts)}（ワンルーム・1K中心）
 - 構造: {', '.join(criteria.structures)}
 - 築年数: {criteria.max_age_years}年以内（築浅志向。新築〜築3年は高評価）
@@ -175,7 +175,7 @@ def _build_prompt(prop: Property, criteria: SearchCriteria) -> str:
 【コスト面の好み】
 - 敷礼なし or 少額を好む
 - 仲介手数料不要は大きなプラス
-- 管理費込みで12.7万以下がスイートスポット
+- 管理費込み11〜12万がベスト。12.5万以下ならスイートスポット。13万超は減点
 
 ## 駅のおすすめランク（DTビル通勤 × 東新宿ドアドア時間のバランス）
 評価時、最寄り駅のランクを必ずスコアに反映してください。
