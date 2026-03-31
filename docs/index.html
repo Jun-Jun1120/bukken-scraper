@@ -174,8 +174,8 @@ body {
   background: none; border: none; font-size: 16px; cursor: pointer;
   padding: 2px 6px; border-radius: 50%; transition: all .2s; line-height: 1; color: #d1d5db;
 }
-.dislike-btn:hover { background: #f3f4f6; transform: scale(1.3); }
-.dislike-btn.disliked { color: var(--muted); opacity: .8; }
+.dislike-btn:hover { background: #eff6ff; transform: scale(1.3); }
+.dislike-btn.disliked { color: var(--accent); }
 .maybe-btn {
   background: none; border: none; font-size: 18px; cursor: pointer;
   padding: 2px 6px; border-radius: 50%; transition: all .2s; line-height: 1; color: #d1d5db;
@@ -443,6 +443,15 @@ body {
           <option value="3">3年以内</option><option value="5">5年以内</option>
           <option value="10">10年以内</option><option value="15">15年以内</option>
           <option value="20">20年以内</option><option value="30">30年以内</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>部屋位置</label>
+        <select id="f-room-pos">
+          <option value="">すべて</option>
+          <option value="角部屋">角部屋</option>
+          <option value="南向き">南向き</option>
+          <option value="最上階">最上階</option>
         </select>
       </div>
       <div class="filter-group">
@@ -834,6 +843,7 @@ function applyFilters() {
   const areaMin = parseFloat($('#f-area-min').value) || 0;
   const areaMax = parseFloat($('#f-area-max').value) || Infinity;
   const maxAge = parseInt($('#f-age').value) || 0;
+  const roomPos = $('#f-room-pos').value;
   const currentYear = new Date().getFullYear();
   filtered = allData.filter(p => {
     if (p.total_rent < rentMin || p.total_rent > rentMax) return false;
@@ -848,6 +858,11 @@ function applyFilters() {
         const m = yb.match(/(\d{4})/);
         if (!m || currentYear - parseInt(m[1]) > maxAge) return false;
       }
+    }
+    // Room position filter
+    if (roomPos) {
+      const text = [p.direction, p.name, ...(p.features || [])].join(' ');
+      if (!text.includes(roomPos)) return false;
     }
     // Station filter
     if (selectedStations.size > 0) {
@@ -1154,13 +1169,13 @@ $$('.sort-btn').forEach(btn => {
 });
 
 // Filter listeners
-['#f-rent-min','#f-rent-max','#f-layout','#f-score','#f-source','#f-area-min','#f-area-max','#f-age'].forEach(s => {
+['#f-rent-min','#f-rent-max','#f-layout','#f-score','#f-source','#f-area-min','#f-area-max','#f-age','#f-room-pos'].forEach(s => {
   $(s).addEventListener('input', applyFilters);
 });
 $('#per-page').addEventListener('change', renderCards);
 $('#btn-reset').addEventListener('click', () => {
   ['#f-rent-min','#f-rent-max','#f-area-min','#f-area-max'].forEach(s => $(s).value = '');
-  ['#f-layout','#f-score','#f-source','#f-age'].forEach(s => $(s).value = '');
+  ['#f-layout','#f-score','#f-source','#f-age','#f-room-pos'].forEach(s => $(s).value = '');
   selectedStations.clear();
   $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = true);
   updateStationCount();
@@ -1192,6 +1207,7 @@ function getCurrentFilters() {
     areaMin: $('#f-area-min').value,
     areaMax: $('#f-area-max').value,
     age: $('#f-age').value,
+    roomPos: $('#f-room-pos').value,
     stations: [...selectedStations],
   };
 }
@@ -1205,6 +1221,7 @@ function applyPreset(preset) {
   $('#f-area-min').value = preset.filters.areaMin || '';
   $('#f-area-max').value = preset.filters.areaMax || '';
   $('#f-age').value = preset.filters.age || '';
+  $('#f-room-pos').value = preset.filters.roomPos || '';
   const st = new Set(preset.filters.stations || []);
   if (st.size > 0) {
     selectedStations = st;
