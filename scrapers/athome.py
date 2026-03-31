@@ -329,6 +329,35 @@ async def _enrich_from_detail(page, prop: Property, delay: float) -> Property | 
                     if item and item not in features:
                         features.append(item)
 
+        # Regex body-text fallback for fields still empty
+        if not building_type:
+            bt_match = re.search(
+                r"(SRC|RC|鉄骨鉄筋コンクリート|鉄筋コンクリート|鉄骨|軽量鉄骨|木造)",
+                body_text,
+            )
+            if bt_match:
+                building_type = bt_match.group(1)
+
+        if not direction:
+            dir_match = re.search(
+                r"(?:向き|方位)[：:\s]*(南東|南西|北東|北西|南|北|東|西)",
+                body_text,
+            )
+            if dir_match:
+                direction = dir_match.group(1)
+
+        if not features:
+            equip_match = re.search(
+                r"設備[/／条件]*[：:\s]*(.*?)(?:\n\n|取扱|周辺|\Z)",
+                body_text,
+                re.DOTALL,
+            )
+            if equip_match:
+                for item in re.split(r"[/／・、,\n]", equip_match.group(1)):
+                    item = item.strip()
+                    if item and item not in features and len(item) < 30:
+                        features.append(item)
+
         await asyncio.sleep(delay + random.uniform(0.5, 1.5))
 
         return Property(
@@ -351,7 +380,7 @@ async def _enrich_from_detail(page, prop: Property, delay: float) -> Property | 
             image_url=prop.image_url,
         )
     except Exception:
-        logger.debug("Failed to enrich athome detail: %s", prop.url)
+        logger.warning("Failed to enrich athome detail: %s", prop.url)
         return prop
 
 
@@ -477,19 +506,47 @@ async def scrape_athome(config: AppConfig) -> list[Property]:
                 unique.append(p)
 
         logger.info(
-            "athome: %d unique from %d total",
+            "athome: %d unique from %d total, enriching details...",
             len(unique), len(properties),
         )
 
-        # Filter out female-only from name/features (quick check without detail page)
-        enriched = [
-            p for p in unique
+        # Phase 2: Visit detail pages in parallel (multiple tabs)
+        concurrency = 5
+        semaphore = asyncio.Semaphore(concurrency)
+        enriched_count = 0
+
+        async def _enrich_one(idx: int, prop: Property) -> Property | None:
+            nonlocal enriched_count
+            async with semaphore:
+                tab = await context.new_page()
+                try:
+                    result = await _enrich_from_detail(
+                        tab, prop, config.scraping.request_delay_sec,
+                    )
+                    enriched_count += 1
+                    if enriched_count % 20 == 0:
+                        logger.info(
+                            "athome: enriched %d/%d...",
+                            enriched_count, len(unique),
+                        )
+                    return result
+                finally:
+                    await tab.close()
+
+        results = await asyncio.gather(
+            *(_enrich_one(i, p) for i, p in enumerate(unique)),
+        )
+        enriched = [r for r in results if r is not None]
+
+        # Filter out female-only from name/features (quick check)
+        filtered = [
+            p for p in enriched
             if not any(kw in p.name for kw in FEMALE_KEYWORDS)
         ]
-        if len(enriched) < len(unique):
-            logger.info("athome: filtered %d female-only from names", len(unique) - len(enriched))
+        if len(filtered) < len(enriched):
+            logger.info("athome: filtered %d female-only from names", len(enriched) - len(filtered))
 
         await browser.close()
 
-    logger.info("athome: Found %d properties (after detail check)", len(enriched))
-    return enriched
+    logger.info("athome: Found %d properties (after detail check)", len(filtered))
+    return filtered

@@ -155,39 +155,99 @@ async def _enrich_chintai_detail(page, prop: Property, delay: float) -> Property
         key_money = prop.key_money
         management_fee = prop.management_fee
 
-        # Extract from detail table (th/td pairs)
-        rows = page.locator("table tr, dl")
-        for ri in range(await rows.count()):
-            th_el = rows.nth(ri).locator("th, dt")
-            td_el = rows.nth(ri).locator("td, dd")
+        # Helper to process a label-value pair into the extracted fields
+        def _process_label_value(
+            th: str, td: str,
+            address_: str, building_type_: str, direction_: str,
+            year_built_: str, floor_: str, management_fee_: int,
+            deposit_: int, key_money_: int, features_: list[str],
+        ) -> tuple[str, str, str, str, str, int, int, int, list[str]]:
+            if not th or not td:
+                return (address_, building_type_, direction_, year_built_,
+                        floor_, management_fee_, deposit_, key_money_, features_)
+            if ("所在地" in th or "住所" in th) and not address_:
+                address_ = td.replace("\n", "").strip()
+            elif "構造" in th and not building_type_:
+                building_type_ = td
+            elif "向き" in th and not direction_:
+                direction_ = td
+            elif "築年" in th and not year_built_:
+                year_built_ = td
+            elif "階" in th and "建" not in th and not floor_:
+                floor_ = td
+            elif "管理費" in th and not management_fee_:
+                management_fee_ = _parse_fee(td)
+            elif "敷金" in th and not deposit_:
+                deposit_ = _parse_fee(td)
+            elif "礼金" in th and not key_money_:
+                key_money_ = _parse_fee(td)
+            elif "設備" in th or "条件" in th:
+                for item in re.split(r"[/／・、,\n]", td):
+                    item = item.strip()
+                    if item and item not in features_:
+                        features_.append(item)
+            return (address_, building_type_, direction_, year_built_,
+                    floor_, management_fee_, deposit_, key_money_, features_)
+
+        # Extract from table rows (th/td pairs)
+        table_rows = page.locator("table tr")
+        for ri in range(await table_rows.count()):
+            th_el = table_rows.nth(ri).locator("th")
+            td_el = table_rows.nth(ri).locator("td")
             if await th_el.count() == 0 or await td_el.count() == 0:
                 continue
             th = (await th_el.first.text_content() or "").strip()
             td = (await td_el.first.text_content() or "").strip()
+            (address, building_type, direction, year_built, floor,
+             management_fee, deposit, key_money, features) = _process_label_value(
+                th, td, address, building_type, direction, year_built,
+                floor, management_fee, deposit, key_money, features,
+            )
 
-            if not th or not td:
+        # Extract from dl elements (dt/dd pairs)
+        dl_elements = page.locator("dl")
+        for ri in range(await dl_elements.count()):
+            dt_el = dl_elements.nth(ri).locator("dt")
+            dd_el = dl_elements.nth(ri).locator("dd")
+            if await dt_el.count() == 0 or await dd_el.count() == 0:
                 continue
-            if "所在地" in th or "住所" in th:
-                if not address:
-                    address = td.replace("\n", "").strip()
-            elif "構造" in th and not building_type:
-                building_type = td
-            elif "向き" in th and not direction:
-                direction = td
-            elif "築年" in th and not year_built:
-                year_built = td
-            elif "階" in th and "建" not in th and not floor:
-                floor = td
-            elif "管理費" in th and not management_fee:
-                management_fee = _parse_fee(td)
-            elif "敷金" in th and not deposit:
-                deposit = _parse_fee(td)
-            elif "礼金" in th and not key_money:
-                key_money = _parse_fee(td)
-            elif "設備" in th or "条件" in th:
-                for item in re.split(r"[/／・、,\n]", td):
+            th = (await dt_el.first.text_content() or "").strip()
+            td = (await dd_el.first.text_content() or "").strip()
+            (address, building_type, direction, year_built, floor,
+             management_fee, deposit, key_money, features) = _process_label_value(
+                th, td, address, building_type, direction, year_built,
+                floor, management_fee, deposit, key_money, features,
+            )
+
+        # Regex body-text fallback for fields still empty
+        body_text = await page.text_content("body") or ""
+
+        if not building_type:
+            bt_match = re.search(
+                r"(SRC|RC|鉄骨鉄筋コンクリート|鉄筋コンクリート|鉄骨|軽量鉄骨|木造)",
+                body_text,
+            )
+            if bt_match:
+                building_type = bt_match.group(1)
+
+        if not direction:
+            dir_match = re.search(
+                r"(?:向き|方位)[：:\s]*(南東|南西|北東|北西|南|北|東|西)",
+                body_text,
+            )
+            if dir_match:
+                direction = dir_match.group(1)
+
+        if not features:
+            equip_match = re.search(
+                r"設備[/／条件]*[：:\s]*(.*?)(?:\n\n|取扱|周辺|\Z)",
+                body_text,
+                re.DOTALL,
+            )
+            if equip_match:
+                for item in re.split(r"[/／・、,\n]", equip_match.group(1)):
                     item = item.strip()
-                    if item and item not in features:
+                    if item and item not in features and len(item) < 30:
                         features.append(item)
 
         await asyncio.sleep(delay)
@@ -212,7 +272,7 @@ async def _enrich_chintai_detail(page, prop: Property, delay: float) -> Property
             image_url=prop.image_url,
         )
     except Exception:
-        logger.debug("Failed to enrich CHINTAI detail: %s", prop.url)
+        logger.warning("Failed to enrich CHINTAI detail: %s", prop.url)
         return prop
 
 

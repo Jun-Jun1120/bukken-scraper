@@ -336,7 +336,7 @@ async def _enrich_from_detail(page, prop: Property, delay: float) -> Property | 
             image_url=prop.image_url,
         )
     except Exception:
-        logger.debug("Failed to enrich Smocca detail: %s", prop.url)
+        logger.warning("Failed to enrich Smocca detail: %s", prop.url)
         return prop
 
 

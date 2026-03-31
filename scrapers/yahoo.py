@@ -21,6 +21,15 @@ BASE_URL = "https://realestate.yahoo.co.jp/rent/search/"
 
 FEMALE_KEYWORDS = ("女性限定", "女性専用", "女性のみ", "レディース")
 
+# StructureId to building structure name mapping
+STRUCTURE_MAP = {
+    "1": "RC", "2": "SRC", "3": "鉄骨", "4": "軽量鉄骨", "5": "木造",
+    "rc": "RC", "src": "SRC", "s": "鉄骨", "w": "木造",
+}
+
+# KindName values that are property types, not structural types
+NON_STRUCTURAL_KINDS = {"マンション", "アパート", "一戸建て", "テラスハウス", "タウンハウス", ""}
+
 # DetailRoomLayout numeric code to layout string mapping
 LAYOUT_MAP_REVERSE = {
     1: "1R",
@@ -103,6 +112,12 @@ def _extract_properties_from_json(data: dict) -> list[Property]:
             structure_id = building.get("StructureId", "")
             total_floor_num = building.get("TotalFloorNum", "")
 
+            # Resolve building_type from StructureId when KindName is not structural
+            building_type = kind_name
+            if kind_name in NON_STRUCTURAL_KINDS:
+                structure_name = STRUCTURE_MAP.get(str(structure_id).lower(), "")
+                building_type = structure_name if structure_name else kind_name
+
             # Year built formatting
             year_built = ""
             if built_on:
@@ -181,7 +196,7 @@ def _extract_properties_from_json(data: dict) -> list[Property]:
                         layout=layout,
                         area_sqm=area,
                         floor=floor,
-                        building_type=kind_name,
+                        building_type=building_type,
                         year_built=year_built,
                         station_access=station_access,
                         image_url=image_url,
@@ -266,6 +281,35 @@ async def _enrich_from_detail(page, prop: Property, delay: float) -> Property | 
                     if item and item not in features:
                         features.append(item)
 
+        # Regex body-text fallback for fields still empty
+        if not building_type:
+            bt_match = re.search(
+                r"(SRC|RC|鉄骨鉄筋コンクリート|鉄筋コンクリート|鉄骨|軽量鉄骨|木造)",
+                body_text,
+            )
+            if bt_match:
+                building_type = bt_match.group(1)
+
+        if not direction:
+            dir_match = re.search(
+                r"(?:向き|方位)[：:\s]*(南東|南西|北東|北西|南|北|東|西)",
+                body_text,
+            )
+            if dir_match:
+                direction = dir_match.group(1)
+
+        if not features:
+            equip_match = re.search(
+                r"設備[/／条件]*[：:\s]*(.*?)(?:\n\n|取扱|周辺|\Z)",
+                body_text,
+                re.DOTALL,
+            )
+            if equip_match:
+                for item in re.split(r"[/／・、,\n]", equip_match.group(1)):
+                    item = item.strip()
+                    if item and item not in features and len(item) < 30:
+                        features.append(item)
+
         await asyncio.sleep(delay)
 
         return Property(
@@ -288,7 +332,7 @@ async def _enrich_from_detail(page, prop: Property, delay: float) -> Property | 
             image_url=prop.image_url,
         )
     except Exception:
-        logger.debug("Failed to enrich Yahoo detail: %s", prop.url)
+        logger.warning("Failed to enrich Yahoo detail: %s", prop.url)
         return prop
 
 

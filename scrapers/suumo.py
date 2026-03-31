@@ -95,8 +95,11 @@ async def _extract_rooms_from_building(building: Locator) -> list[Property]:
             stations.append(text.strip())
     station_access = " / ".join(stations)
 
-    age_el = building.locator(".cassetteitem_detail-col3 div").first
-    year_built = await _safe_text(age_el)
+    col3_divs = building.locator(".cassetteitem_detail-col3 div")
+    year_built = await _safe_text(col3_divs.first)
+    building_type_from_list = ""
+    if await col3_divs.count() >= 2:
+        building_type_from_list = await _safe_text(col3_divs.nth(1))
 
     # Building image - SUUMO uses rel attribute for lazy-loaded images
     image_url = ""
@@ -153,7 +156,7 @@ async def _extract_rooms_from_building(building: Locator) -> list[Property]:
                 layout=layout,
                 area_sqm=_parse_area(area_text),
                 floor=floor,
-                building_type="",  # not shown on list page
+                building_type=building_type_from_list,
                 year_built=year_built,
                 direction="",  # not shown on list page
                 station_access=station_access,
@@ -211,6 +214,37 @@ async def _enrich_from_detail(page, prop: Property, delay: float) -> Property | 
                     if item and item not in features:
                         features.append(item)
 
+        # Regex body-text fallback for fields still empty
+        body_text = await page.text_content("body") or ""
+
+        if not building_type:
+            bt_match = re.search(
+                r"(SRC|RC|鉄骨鉄筋コンクリート|鉄筋コンクリート|鉄骨|軽量鉄骨|木造)",
+                body_text,
+            )
+            if bt_match:
+                building_type = bt_match.group(1)
+
+        if not direction:
+            dir_match = re.search(
+                r"(?:向き|方位)[：:\s]*(南東|南西|北東|北西|南|北|東|西)",
+                body_text,
+            )
+            if dir_match:
+                direction = dir_match.group(1)
+
+        if not features:
+            equip_match = re.search(
+                r"設備[/／条件]*[：:\s]*(.*?)(?:\n\n|取扱|周辺|\Z)",
+                body_text,
+                re.DOTALL,
+            )
+            if equip_match:
+                for item in re.split(r"[/／・、,\n]", equip_match.group(1)):
+                    item = item.strip()
+                    if item and item not in features and len(item) < 30:
+                        features.append(item)
+
         await asyncio.sleep(delay)
 
         return Property(
@@ -233,7 +267,7 @@ async def _enrich_from_detail(page, prop: Property, delay: float) -> Property | 
             image_url=prop.image_url,
         )
     except Exception:
-        logger.debug("Failed to enrich SUUMO detail: %s", prop.url)
+        logger.warning("Failed to enrich SUUMO detail: %s", prop.url)
         return prop
 
 
