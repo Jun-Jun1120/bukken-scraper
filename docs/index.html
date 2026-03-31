@@ -1162,10 +1162,14 @@ document.addEventListener('keydown', e => {
 
 // Sort buttons
 $$('.sort-btn').forEach(btn => {
+  if (btn.id === 'btn-map' || btn.id === 'btn-chart') return; // handled separately
   btn.addEventListener('click', () => {
-    $$('.sort-btn').forEach(b => b.classList.remove('active'));
+    $$('.sort-btn').forEach(b => { if (b.id !== 'btn-map' && b.id !== 'btn-chart') b.classList.remove('active'); });
     btn.classList.add('active');
     sortKey = btn.dataset.key; sortDir = btn.dataset.dir;
+    // Close map and chart when sorting
+    if (mapVisible) { mapVisible = false; $('#map-container').classList.remove('visible'); $('#btn-map').classList.remove('active'); }
+    if (chartVisible) { chartVisible = false; $('#market-chart').classList.remove('visible'); $('#btn-chart').classList.remove('active'); }
     applySort();
   });
 });
