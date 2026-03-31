@@ -116,11 +116,15 @@ async def _run_pipeline_async(
     _before = len(properties)
 
     def _is_allowed_structure(p):
-        bt = (p.building_type or "").upper()
+        bt = p.building_type or ""
         if not bt:
             return True  # 構造不明は残す
-        # 木造のみ除外 (RC, SRC, 鉄骨, 鉄筋 etc. は全てOK)
-        return "木造" not in bt and "ウッド" not in bt
+        # 木造・軽量鉄骨を除外
+        if "木造" in bt or "ウッド" in bt:
+            return False
+        if "軽量鉄骨" in bt:
+            return False
+        return True
 
     properties = [p for p in properties if _is_allowed_structure(p)]
     _filtered = _before - len(properties)
