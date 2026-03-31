@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>物件ダッシュボード</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 :root {
   --bg: #f5f5f7; --card: #fff; --text: #1d1d1f; --muted: #6e6e73;
@@ -303,12 +305,69 @@ body {
 .empty-icon { font-size: 48px; margin-bottom: 16px; }
 .empty p { font-size: 14px; }
 
+/* Initial Cost Calculator */
+.cost-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+.cost-table th, .cost-table td { padding: 10px 14px; text-align: left; font-size: 14px; border-bottom: 1px solid var(--border); }
+.cost-table th { color: var(--muted); font-weight: 600; font-size: 13px; width: 40%; }
+.cost-table td { font-weight: 600; text-align: right; }
+.cost-table tr.cost-total td { font-size: 18px; font-weight: 800; color: var(--red); border-top: 2px solid var(--text); }
+.cost-table tr.cost-total th { font-size: 14px; font-weight: 700; border-top: 2px solid var(--text); }
+.cost-config { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.cost-config label { font-size: 12px; color: var(--muted); font-weight: 600; display: flex; flex-direction: column; gap: 4px; }
+.cost-config input { padding: 6px 10px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; width: 120px; }
+.cost-section { background: #fafafa; border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+.cost-section h3 { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+
+/* Property Notes */
+.notes-section { margin-bottom: 20px; }
+.notes-section h3 { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+.notes-textarea { width: 100%; min-height: 80px; padding: 12px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 14px; font-family: inherit; resize: vertical; transition: border-color .2s; }
+.notes-textarea:focus { outline: none; border-color: var(--accent); }
+.status-chips { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.status-chip { padding: 6px 14px; border-radius: 20px; border: 1.5px solid var(--border); background: white; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; }
+.status-chip:hover { border-color: var(--accent); background: #f0f4ff; }
+.status-chip.active { background: var(--accent); color: white; border-color: var(--accent); }
+.note-icon { font-size: 12px; margin-left: 4px; color: var(--accent); }
+
+/* Comparison */
+.compare-check { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); cursor: pointer; font-weight: 600; user-select: none; }
+.compare-check input { margin: 0; cursor: pointer; }
+.compare-fab { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 14px 32px; border-radius: 30px; background: var(--accent); color: white; font-size: 15px; font-weight: 700; border: none; cursor: pointer; box-shadow: 0 4px 20px rgba(0,113,227,.4); z-index: 150; transition: all .2s; display: none; }
+.compare-fab:hover { transform: translateX(-50%) scale(1.05); box-shadow: 0 6px 28px rgba(0,113,227,.5); }
+.compare-overlay { position: fixed; inset: 0; background: rgba(255,255,255,.97); z-index: 300; display: none; flex-direction: column; overflow: hidden; }
+.compare-overlay.open { display: flex; }
+.compare-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+.compare-header h2 { font-size: 20px; font-weight: 700; }
+.compare-body { flex: 1; overflow: auto; padding: 20px; }
+.compare-table { border-collapse: collapse; min-width: 100%; }
+.compare-table th, .compare-table td { padding: 10px 16px; text-align: left; font-size: 13px; border-bottom: 1px solid var(--border); white-space: nowrap; min-width: 140px; }
+.compare-table th { position: sticky; left: 0; background: #f9fafb; font-weight: 700; color: var(--muted); z-index: 2; min-width: 100px; }
+.compare-table td { font-weight: 500; }
+.compare-table tr:first-child td { font-weight: 700; font-size: 14px; }
+
+/* Map */
+.map-container { display: none; margin-bottom: 14px; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+.map-container.visible { display: block; }
+#map { height: 500px; width: 100%; }
+
+/* Rent Market Chart */
+.market-chart { display: none; margin-bottom: 14px; background: white; border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
+.market-chart.visible { display: block; }
+.market-chart h3 { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+.chart-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.chart-bar-label { width: 100px; font-size: 13px; font-weight: 600; text-align: right; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-bar-track { flex: 1; height: 28px; background: #f0f0f2; border-radius: 6px; overflow: hidden; position: relative; }
+.chart-bar-fill { height: 100%; border-radius: 6px; display: flex; align-items: center; padding: 0 10px; font-size: 12px; font-weight: 700; color: white; transition: width .3s ease; }
+.chart-bar-count { font-size: 12px; color: var(--muted); width: 40px; flex-shrink: 0; }
+
 /* Responsive */
 @media (max-width: 640px) {
   .card-top { flex-direction: column; }
   .card-img, .card-img-placeholder { width: 100%; height: 160px; }
   .detail-pros-cons { grid-template-columns: 1fr; }
   .card-pros-cons { flex-direction: column; gap: 4px; }
+  #map { height: 350px; }
+  .compare-table th, .compare-table td { min-width: 120px; padding: 8px 12px; }
 }
 </style>
 </head>
@@ -318,6 +377,7 @@ body {
   <h1>物件ダッシュボード</h1>
   <div class="header-actions">
     <span class="status-text" id="status">毎朝7時に自動更新</span>
+    <button class="btn btn-primary" id="btn-scrape" title="GitHub Actionsでスクレイピング開始">スクレイピング</button>
     <button class="btn btn-outline" id="btn-sync" title="いいねデータをGitHubに同期">同期</button>
     <button class="btn btn-outline" id="btn-export-likes" title="いいねデータをエクスポート">Export</button>
     <label class="btn btn-outline" style="cursor:pointer" title="いいねデータをインポート">Import<input type="file" id="btn-import-likes" accept=".json" style="display:none"></label>
@@ -408,6 +468,8 @@ body {
       <button class="sort-btn" data-key="year_built_num" data-dir="desc">築浅</button>
       <button class="sort-btn" data-key="walk_min" data-dir="asc">駅近</button>
       <button class="sort-btn" data-key="scraped_at" data-dir="desc">新着</button>
+      <button class="sort-btn" id="btn-map" onclick="toggleMap()">地図</button>
+      <button class="sort-btn" id="btn-chart" onclick="toggleChart()">相場</button>
     </div>
     <div class="per-page">
       <select id="per-page">
@@ -417,8 +479,26 @@ body {
     </div>
   </div>
 
+  <div class="map-container" id="map-container">
+    <div id="map"></div>
+  </div>
+
+  <div class="market-chart" id="market-chart"></div>
+
   <div class="cards" id="cards"></div>
   <div class="pagination" id="pagination"></div>
+</div>
+
+<!-- Compare FAB -->
+<button class="compare-fab" id="compare-fab" onclick="openComparison()"></button>
+
+<!-- Comparison overlay -->
+<div class="compare-overlay" id="compare-overlay">
+  <div class="compare-header">
+    <h2>物件比較</h2>
+    <button class="btn btn-outline" onclick="closeComparison()">閉じる</button>
+  </div>
+  <div class="compare-body" id="compare-body"></div>
 </div>
 
 <!-- Detail modal -->
@@ -431,10 +511,57 @@ let allData = [];
 let filtered = [];
 let sortKey = 'score', sortDir = 'desc';
 let currentPage = 1;
+let compareSet = new Set(); // URLs of properties selected for comparison
+let mapInstance = null;
+let mapVisible = false;
+let chartVisible = false;
 
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// Station coordinates for map
+const STATION_COORDS = {
+  '北参道': [35.6783, 139.7072], '明治神宮前': [35.6702, 139.7024],
+  '渋谷': [35.6580, 139.7016], '南新宿': [35.6863, 139.6973],
+  '代々木': [35.6835, 139.7021], '表参道': [35.6654, 139.7122],
+  '国立競技場': [35.6796, 139.7148], '原宿': [35.6702, 139.7027],
+  '代々木公園': [35.6680, 139.6886], '参宮橋': [35.6774, 139.6943],
+  '初台': [35.6782, 139.6870], '千駄ヶ谷': [35.6811, 139.7112],
+  '信濃町': [35.6801, 139.7199], '六本木': [35.6626, 139.7312],
+  '神泉': [35.6558, 139.6936], '代々木八幡': [35.6658, 139.6852],
+  '恵比寿': [35.6468, 139.7100], '青山一丁目': [35.6725, 139.7243],
+  '幡ヶ谷': [35.6744, 139.6781], '代官山': [35.6485, 139.7027],
+  '代々木上原': [35.6680, 139.6790], '池尻大橋': [35.6504, 139.6843],
+  '東北沢': [35.6666, 139.6725], '乃木坂': [35.6661, 139.7268],
+  '駒場東大前': [35.6609, 139.6819], '中目黒': [35.6440, 139.6992],
+  '池ノ上': [35.6601, 139.6721], '外苑前': [35.6705, 139.7179],
+  '下北沢': [35.6615, 139.6680],
+};
+
+// Notes Store (localStorage)
+const NotesStore = {
+  KEY: 'bukken-notes',
+  _load() { try { return JSON.parse(localStorage.getItem(this.KEY)) || {}; } catch { return {}; } },
+  _save(d) { localStorage.setItem(this.KEY, JSON.stringify(d)); },
+  get(url) { return this._load()[url] || null; },
+  set(url, note) {
+    const d = this._load();
+    const updated = { ...d, [url]: note };
+    this._save(updated);
+  },
+  delete(url) {
+    const d = this._load();
+    const { [url]: _, ...rest } = d;
+    this._save(rest);
+  },
+  hasNote(url) {
+    const note = this.get(url);
+    if (!note) return false;
+    return !!(note.text || note.status);
+  },
+  getAll() { return this._load(); },
+};
 
 // Station rank mapping
 const STATION_RANKS = {
@@ -741,6 +868,8 @@ function applySort() {
   });
   renderStats();
   renderCards();
+  if (mapVisible) updateMapMarkers();
+  if (chartVisible) renderChart();
 }
 
 // Cards
@@ -766,6 +895,8 @@ function renderCards() {
     const pro1 = (p.pros || [])[0] || '';
     const con1 = (p.cons || [])[0] || '';
     const comment = p.comment || '';
+    const hasNote = NotesStore.hasNote(p.url);
+    const isCompared = compareSet.has(p.url);
     return `
     <div class="card" onclick="showDetail(${start + i})">
       <div class="card-border" style="background:${scoreColor(p.score)}"></div>
@@ -776,7 +907,7 @@ function renderCards() {
             <div class="card-header">
               <span class="source-badge" style="background:${sourceColor(p.source)}18;color:${sourceColor(p.source)}">${esc(p.source)}</span>
               ${rankBadge(rank)}
-              <span class="card-name">${esc(p.name)}</span>
+              <span class="card-name">${esc(p.name)}${hasNote ? '<span class="note-icon" title="メモあり">&#128221;</span>' : ''}</span>
             </div>
             <div class="card-address">${esc(p.address)}</div>
             <div class="card-meta">
@@ -788,6 +919,9 @@ function renderCards() {
             <div class="card-station">${esc(p.station_access)}</div>
           </div>
           <div class="card-score-area">
+            <label class="compare-check" onclick="event.stopPropagation()">
+              <input type="checkbox" ${isCompared ? 'checked' : ''} onchange="toggleCompare('${esc(p.url)}', this.checked)">比較
+            </label>
             <button class="like-btn ${p.liked ? 'liked' : ''}" onclick="event.stopPropagation();toggleLike(${start + i})" title="いいね">
               ${p.liked ? '&#10084;' : '&#9825;'}
             </button>
@@ -829,13 +963,23 @@ function renderCards() {
 function goPage(n) { currentPage = n; renderCards(); window.scrollTo({ top: 300, behavior: 'smooth' }); }
 
 // Detail
+let currentDetailIdx = null;
 function showDetail(idx) {
   const p = filtered[idx];
   if (!p) return;
+  currentDetailIdx = idx;
   const rank = getStationRank(p.station_access);
   const pros = (p.pros || []).map(x => `<li>${esc(x)}</li>`).join('') || '<li style="color:#9ca3af">情報なし</li>';
   const cons = (p.cons || []).map(x => `<li>${esc(x)}</li>`).join('') || '<li style="color:#9ca3af">情報なし</li>';
   const feats = (p.features || []).map(f => `<span class="tag">${esc(f)}</span>`).join('');
+  const note = NotesStore.get(p.url) || { text: '', status: '' };
+
+  // Initial cost calculator defaults
+  const deposit = p.deposit || 0;
+  const keyMoney = p.key_money || 0;
+  const brokerFee = p.rent || 0; // default 1 month rent
+  const prepaidRent = p.total_rent || 0;
+  const movingCost = 50000;
 
   $('#detail').innerHTML = `
     <button class="detail-close" onclick="closeDetail()">&#10005;</button>
@@ -871,6 +1015,28 @@ function showDetail(idx) {
     </div>
     <div class="detail-station"><strong>最寄り駅:</strong> ${esc(p.station_access)}</div>
     ${feats ? '<div class="detail-features">' + feats + '</div>' : ''}
+
+    <!-- Initial Cost Calculator -->
+    <div class="cost-section">
+      <h3>初期費用計算</h3>
+      <div class="cost-config">
+        <label>仲介手数料
+          <input type="number" id="cost-broker" value="${brokerFee}" min="0" step="1000" onchange="recalcCost()">
+        </label>
+        <label>引越し費用
+          <input type="number" id="cost-moving" value="${movingCost}" min="0" step="1000" onchange="recalcCost()">
+        </label>
+      </div>
+      <table class="cost-table">
+        <tr><th>敷金</th><td>${deposit.toLocaleString()}円</td></tr>
+        <tr><th>礼金</th><td>${keyMoney.toLocaleString()}円</td></tr>
+        <tr><th>仲介手数料</th><td id="cost-broker-val">${brokerFee.toLocaleString()}円</td></tr>
+        <tr><th>前払い家賃（1ヶ月）</th><td>${prepaidRent.toLocaleString()}円</td></tr>
+        <tr><th>引越し費用</th><td id="cost-moving-val">${movingCost.toLocaleString()}円</td></tr>
+        <tr class="cost-total"><th>合計初期費用</th><td id="cost-total-val">${(deposit + keyMoney + brokerFee + prepaidRent + movingCost).toLocaleString()}円</td></tr>
+      </table>
+    </div>
+
     <div class="detail-eval">
       <h3>AI分析</h3>
       <div class="detail-pros-cons">
@@ -879,14 +1045,73 @@ function showDetail(idx) {
       </div>
       ${p.comment ? `<div class="detail-comment"><div class="detail-comment-label">AIコメント</div>${esc(p.comment)}</div>` : ''}
     </div>
+
+    <!-- Property Notes -->
+    <div class="notes-section">
+      <h3>物件メモ</h3>
+      <div class="status-chips">
+        ${['内見予定','内見済み','確認中','見送り'].map(s =>
+          `<button class="status-chip ${note.status === s ? 'active' : ''}" onclick="setNoteStatus('${s}')">${s}</button>`
+        ).join('')}
+      </div>
+      <textarea class="notes-textarea" id="note-textarea" placeholder="メモを入力..." oninput="saveNote()">${esc(note.text || '')}</textarea>
+    </div>
+
     <div class="detail-link"><a href="${esc(p.url)}" target="_blank">物件サイトで詳細を見る</a></div>
   `;
+
+  // Store cost data for recalculation
+  $('#detail').dataset.deposit = deposit;
+  $('#detail').dataset.keyMoney = keyMoney;
+  $('#detail').dataset.prepaidRent = prepaidRent;
+
   $('#overlay').classList.add('open');
   document.body.style.overflow = 'hidden';
 }
+
+function recalcCost() {
+  const deposit = parseInt($('#detail').dataset.deposit) || 0;
+  const keyMoney = parseInt($('#detail').dataset.keyMoney) || 0;
+  const prepaidRent = parseInt($('#detail').dataset.prepaidRent) || 0;
+  const broker = parseInt($('#cost-broker').value) || 0;
+  const moving = parseInt($('#cost-moving').value) || 0;
+  const total = deposit + keyMoney + broker + prepaidRent + moving;
+  $('#cost-broker-val').textContent = broker.toLocaleString() + '円';
+  $('#cost-moving-val').textContent = moving.toLocaleString() + '円';
+  $('#cost-total-val').textContent = total.toLocaleString() + '円';
+}
+
+function setNoteStatus(status) {
+  const p = filtered[currentDetailIdx];
+  if (!p) return;
+  const note = NotesStore.get(p.url) || { text: '', status: '' };
+  const newStatus = note.status === status ? '' : status;
+  NotesStore.set(p.url, { ...note, status: newStatus });
+  // Update chips
+  $$('.status-chip').forEach(chip => {
+    chip.classList.toggle('active', chip.textContent === newStatus);
+  });
+  renderCards(); // refresh note icons
+}
+
+function saveNote() {
+  const p = filtered[currentDetailIdx];
+  if (!p) return;
+  const text = $('#note-textarea').value;
+  const note = NotesStore.get(p.url) || { text: '', status: '' };
+  NotesStore.set(p.url, { ...note, text });
+  // Debounced card refresh for note icon
+  clearTimeout(saveNote._timer);
+  saveNote._timer = setTimeout(() => renderCards(), 500);
+}
 function closeDetail() { $('#overlay').classList.remove('open'); document.body.style.overflow = ''; }
 $('#overlay').addEventListener('click', e => { if (e.target === $('#overlay')) closeDetail(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if ($('#compare-overlay').classList.contains('open')) { closeComparison(); }
+    else { closeDetail(); }
+  }
+});
 
 // Sort buttons
 $$('.sort-btn').forEach(btn => {
@@ -1070,23 +1295,54 @@ function updatePrefsBar() {
   $('#prefs-text').innerHTML = `<span class="prefs-count">${countText}</span> &rarr; ${esc(parts.join('、') || '分析中...')}`;
 }
 
-// GitHub Sync
-$('#btn-sync').addEventListener('click', async () => {
-  const GH_TOKEN_KEY = 'bukken-gh-token';
+// GitHub helpers
+const GH_TOKEN_KEY = 'bukken-gh-token';
+function getGhToken() {
   let token = localStorage.getItem(GH_TOKEN_KEY);
   if (!token) {
-    token = prompt('GitHub Personal Access Token を入力 (fine-grained, contents:write):');
-    if (!token) return;
+    token = prompt('GitHub Personal Access Token を入力 (fine-grained, contents:write + actions:write):');
+    if (!token) return null;
     localStorage.setItem(GH_TOKEN_KEY, token);
   }
+  return token;
+}
+
+// Scrape trigger
+$('#btn-scrape').addEventListener('click', async () => {
+  const token = getGhToken(); if (!token) return;
+  try {
+    $('#btn-scrape').disabled = true;
+    $('#status').textContent = 'スクレイピング開始中...';
+    const res = await fetch('https://api.github.com/repos/Jun-Jun1120/bukken-scraper/actions/workflows/scrape.yml/dispatches', {
+      method: 'POST',
+      headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ref: 'main' }),
+    });
+    if (res.status === 204) {
+      $('#status').textContent = 'スクレイピング開始しました (約60〜90分で完了)';
+    } else if (res.status === 401 || res.status === 403) {
+      localStorage.removeItem(GH_TOKEN_KEY);
+      $('#status').textContent = 'トークンが無効です。再試行してください';
+    } else {
+      $('#status').textContent = `開始失敗 (${res.status})`;
+    }
+  } catch { $('#status').textContent = 'エラーが発生しました'; }
+  $('#btn-scrape').disabled = false;
+  setTimeout(() => { $('#status').textContent = '毎朝7時に自動更新'; }, 8000);
+});
+
+// GitHub Sync
+$('#btn-sync').addEventListener('click', async () => {
+  const token = getGhToken(); if (!token) return;
   const likes = LikesStore.export();
   const dislikes = DislikesStore.export();
+  const notes = NotesStore.getAll();
   try {
     $('#status').textContent = '同期中...';
     const res = await fetch('https://api.github.com/repos/Jun-Jun1120/bukken-scraper/dispatches', {
       method: 'POST',
       headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event_type: 'sync-likes', client_payload: { likes, dislikes } }),
+      body: JSON.stringify({ event_type: 'sync-likes', client_payload: { likes, dislikes, notes } }),
     });
     if (res.status === 204) {
       $('#status').textContent = `同期完了 (いいね${likes.length}件, 興味なし${dislikes.length}件)`;
@@ -1102,9 +1358,14 @@ $('#btn-sync').addEventListener('click', async () => {
   setTimeout(() => { $('#status').textContent = '毎朝7時に自動更新'; }, 5000);
 });
 
-// Export/Import Likes
+// Export/Import Likes (includes notes)
 $('#btn-export-likes').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(LikesStore.export(), null, 2)], { type: 'application/json' });
+  const exportData = {
+    likes: LikesStore.export(),
+    dislikes: DislikesStore.export(),
+    notes: NotesStore.getAll(),
+  };
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = 'bukken-likes.json'; a.click();
 });
@@ -1112,17 +1373,235 @@ $('#btn-import-likes').addEventListener('change', async (e) => {
   const file = e.target.files[0]; if (!file) return;
   const text = await file.text();
   try {
-    const urls = JSON.parse(text);
-    if (Array.isArray(urls)) {
-      LikesStore.import(urls);
+    const data = JSON.parse(text);
+    if (Array.isArray(data)) {
+      // Backward compatible: plain array of URLs
+      LikesStore.import(data);
       allData.forEach(p => { p.liked = LikesStore.isLiked(p.url); });
       renderCards(); renderStats(); updatePrefsBar();
-      $('#status').textContent = `${urls.length}件インポート完了`;
-      setTimeout(() => { $('#status').textContent = '毎朝7時に自動更新'; }, 3000);
+      $('#status').textContent = `${data.length}件インポート完了`;
+    } else if (data && data.likes) {
+      // New format with likes, dislikes, notes
+      LikesStore.import(data.likes || []);
+      if (data.notes) {
+        const existing = NotesStore.getAll();
+        const merged = { ...existing, ...data.notes };
+        localStorage.setItem(NotesStore.KEY, JSON.stringify(merged));
+      }
+      allData.forEach(p => { p.liked = LikesStore.isLiked(p.url); });
+      renderCards(); renderStats(); updatePrefsBar();
+      $('#status').textContent = `${(data.likes||[]).length}件インポート完了`;
     }
+    setTimeout(() => { $('#status').textContent = '毎朝7時に自動更新'; }, 3000);
   } catch { alert('JSONファイルが不正です'); }
   e.target.value = '';
 });
+
+// === Comparison Feature ===
+function toggleCompare(url, checked) {
+  if (checked) {
+    compareSet.add(url);
+  } else {
+    compareSet.delete(url);
+  }
+  updateCompareFab();
+}
+
+function updateCompareFab() {
+  const fab = $('#compare-fab');
+  if (compareSet.size >= 2) {
+    fab.style.display = 'block';
+    fab.textContent = `比較する (${compareSet.size}件)`;
+  } else {
+    fab.style.display = 'none';
+  }
+}
+
+function openComparison() {
+  const props = allData.filter(p => compareSet.has(p.url));
+  if (props.length < 2) return;
+
+  const rows = [
+    { label: '物件名', fn: p => esc(p.name) },
+    { label: '家賃', fn: p => rentText(p.rent) },
+    { label: '総額/月', fn: p => rentText(p.total_rent) },
+    { label: '間取り', fn: p => esc(p.layout || '-') },
+    { label: '面積', fn: p => p.area_sqm + 'm\u00B2' },
+    { label: '築年', fn: p => esc(p.year_built || '-') },
+    { label: '最寄り駅', fn: p => esc((p.station_access || '').split('/')[0] || '-') },
+    { label: 'スコア', fn: p => `<span style="color:${scoreColor(p.score)};font-weight:800">${p.score}</span>` },
+    { label: '向き', fn: p => esc(p.direction || '-') },
+    { label: '構造', fn: p => esc(p.building_type || '-') },
+    { label: '敷金', fn: p => p.deposit ? p.deposit.toLocaleString() + '円' : 'なし' },
+    { label: '礼金', fn: p => p.key_money ? p.key_money.toLocaleString() + '円' : 'なし' },
+    { label: '設備', fn: p => (p.features || []).slice(0, 5).map(f => esc(f)).join(', ') || '-' },
+  ];
+
+  let html = '<table class="compare-table">';
+  for (const row of rows) {
+    html += '<tr>';
+    html += `<th>${row.label}</th>`;
+    for (const p of props) {
+      html += `<td>${row.fn(p)}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</table>';
+
+  $('#compare-body').innerHTML = html;
+  $('#compare-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeComparison() {
+  $('#compare-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// === Map Feature ===
+function toggleMap() {
+  mapVisible = !mapVisible;
+  const container = $('#map-container');
+  const btn = $('#btn-map');
+  if (mapVisible) {
+    container.classList.add('visible');
+    btn.classList.add('active');
+    initMap();
+    updateMapMarkers();
+  } else {
+    container.classList.remove('visible');
+    btn.classList.remove('active');
+  }
+}
+
+function initMap() {
+  if (mapInstance) return;
+  const dtLat = 35.6590, dtLng = 139.6988;
+  mapInstance = L.map('map').setView([dtLat, dtLng], 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19,
+  }).addTo(mapInstance);
+
+  // DT Building pin (blue)
+  L.marker([dtLat, dtLng], {
+    icon: L.divIcon({
+      className: '',
+      html: '<div style="background:#0071e3;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,.3)"></div>',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+    }),
+  }).addTo(mapInstance).bindPopup('<strong>渋谷DTビル</strong><br>オフィス');
+
+  // 3km radius circle
+  L.circle([dtLat, dtLng], {
+    radius: 3000,
+    color: '#0071e3',
+    fillColor: '#0071e380',
+    fillOpacity: 0.06,
+    weight: 2,
+    dashArray: '6 4',
+  }).addTo(mapInstance);
+}
+
+let mapMarkers = [];
+function updateMapMarkers() {
+  if (!mapInstance) return;
+  // Remove old markers
+  mapMarkers.forEach(m => mapInstance.removeLayer(m));
+  mapMarkers = [];
+
+  // Group properties by station
+  const stationProps = {};
+  for (const p of filtered) {
+    const stations = extractStations(p.station_access);
+    for (const st of stations) {
+      if (STATION_COORDS[st]) {
+        if (!stationProps[st]) stationProps[st] = [];
+        stationProps[st].push(p);
+        break; // use first matched station
+      }
+    }
+  }
+
+  for (const [station, props] of Object.entries(stationProps)) {
+    const coords = STATION_COORDS[station];
+    if (!coords) continue;
+    for (let i = 0; i < props.length; i++) {
+      const p = props[i];
+      // Offset slightly so markers don't overlap
+      const offset = i * 0.0002;
+      const lat = coords[0] + offset;
+      const lng = coords[1] + (i % 2 === 0 ? offset : -offset);
+      const color = p.score >= 70 ? '#34c759' : p.score >= 50 ? '#ffcc00' : '#ff3b30';
+      const marker = L.circleMarker([lat, lng], {
+        radius: 7,
+        fillColor: color,
+        color: '#fff',
+        weight: 2,
+        fillOpacity: 0.9,
+      }).addTo(mapInstance);
+      marker.bindPopup(`<strong>${esc(p.name)}</strong><br>${rentText(p.total_rent)}/月<br>スコア: ${p.score}`);
+      mapMarkers.push(marker);
+    }
+  }
+}
+
+// === Rent Market Chart ===
+function toggleChart() {
+  chartVisible = !chartVisible;
+  const container = $('#market-chart');
+  const btn = $('#btn-chart');
+  if (chartVisible) {
+    container.classList.add('visible');
+    btn.classList.add('active');
+    renderChart();
+  } else {
+    container.classList.remove('visible');
+    btn.classList.remove('active');
+  }
+}
+
+function renderChart() {
+  const container = $('#market-chart');
+  // Group by nearest station
+  const stationData = {};
+  for (const p of filtered) {
+    const stations = extractStations(p.station_access);
+    const station = stations[0] || '不明';
+    if (!stationData[station]) stationData[station] = { total: 0, count: 0 };
+    stationData[station] = {
+      total: stationData[station].total + p.total_rent,
+      count: stationData[station].count + 1,
+    };
+  }
+
+  const entries = Object.entries(stationData)
+    .map(([name, d]) => ({ name, avg: Math.round(d.total / d.count), count: d.count }))
+    .sort((a, b) => a.avg - b.avg);
+
+  if (!entries.length) {
+    container.innerHTML = '<h3>家賃相場グラフ</h3><p style="color:var(--muted);font-size:14px">データがありません</p>';
+    return;
+  }
+
+  const maxRent = Math.max(...entries.map(e => e.avg));
+
+  let html = '<h3>家賃相場グラフ（駅別平均総額）</h3>';
+  for (const e of entries) {
+    const pct = Math.max((e.avg / maxRent) * 100, 8);
+    const color = e.avg / 10000 <= 10 ? 'var(--green)' : e.avg / 10000 <= 15 ? 'var(--orange)' : 'var(--red)';
+    html += `
+      <div class="chart-bar-row">
+        <div class="chart-bar-label">${esc(e.name)}</div>
+        <div class="chart-bar-track">
+          <div class="chart-bar-fill" style="width:${pct}%;background:${color}">${rentText(e.avg)}</div>
+        </div>
+        <div class="chart-bar-count">${e.count}件</div>
+      </div>`;
+  }
+  container.innerHTML = html;
+}
 
 // Init
 loadData();
