@@ -9,7 +9,7 @@
   jobs:
     scrape:
       runs-on: ubuntu-latest
-      timeout-minutes: 90
+      timeout-minutes: 120
 
       steps:
         - uses: actions/checkout@v4
@@ -33,7 +33,7 @@
             ATHOME_USER: ${{ secrets.ATHOME_USER }}
             ATHOME_PASS: ${{ secrets.ATHOME_PASS }}
           run: |
-            python main.py --max-pages 3 --sheets
+            python main.py --max-pages 3 --sheets --skip-scrapers "HOME'S"
 
         - name: Upload results
           if: always()

@@ -38,10 +38,16 @@ def _deduplicate(properties: list[Property]) -> list[Property]:
     return unique
 
 
-async def _scrape_all(config: AppConfig, suumo_only: bool = False) -> list[Property]:
+async def _scrape_all(
+    config: AppConfig,
+    suumo_only: bool = False,
+    skip_scrapers: set[str] | None = None,
+) -> list[Property]:
     """Run scrapers and collect results."""
     if suumo_only:
         return await scrape_suumo(config)
+
+    skip = {s.lower() for s in (skip_scrapers or set())}
 
     scrapers = [
         ("SUUMO", scrape_suumo),
@@ -56,6 +62,9 @@ async def _scrape_all(config: AppConfig, suumo_only: bool = False) -> list[Prope
 
     all_properties: list[Property] = []
     for name, scraper_fn in scrapers:
+        if name.lower() in skip:
+            logger.info("Skipping %s (--skip-scrapers)", name)
+            continue
         try:
             result = await scraper_fn(config)
             logger.info("%s: collected %d properties", name, len(result))
@@ -71,12 +80,15 @@ async def _run_pipeline_async(
     suumo_only: bool = False,
     skip_ai: bool = False,
     use_sheets: bool = False,
+    skip_scrapers: set[str] | None = None,
 ) -> None:
     """Async pipeline: scrape → filter → evaluate → output."""
     logger.info("=== Starting bukken-scraper pipeline ===")
 
     # 1. Scrape
-    properties = await _scrape_all(config, suumo_only=suumo_only)
+    properties = await _scrape_all(
+        config, suumo_only=suumo_only, skip_scrapers=skip_scrapers,
+    )
     logger.info("Total unique properties: %d", len(properties))
 
     if not properties:
@@ -166,6 +178,10 @@ def main() -> None:
     parser.add_argument("--sheets", action="store_true", help="Google Sheetsにも出力")
     parser.add_argument("--email", type=str, default="", help="Google Sheets共有先メールアドレス")
     parser.add_argument("--max-pages", type=int, default=20, help="サイトあたりの最大ページ数")
+    parser.add_argument(
+        "--skip-scrapers", type=str, default="",
+        help="スキップするスクレイパー (カンマ区切り, 例: HOME'S,athome会員)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -182,6 +198,12 @@ def main() -> None:
         sheets=SheetsConfig(share_with_email=args.email),
     )
 
+    skip_set = (
+        {s.strip() for s in args.skip_scrapers.split(",") if s.strip()}
+        if args.skip_scrapers
+        else None
+    )
+
     if args.schedule:
         from scheduler import start_scheduler
         start_scheduler(config)
@@ -191,6 +213,7 @@ def main() -> None:
             suumo_only=args.suumo_only,
             skip_ai=args.skip_ai,
             use_sheets=args.sheets,
+            skip_scrapers=skip_set,
         )
 
 
