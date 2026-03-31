@@ -71,6 +71,12 @@
             git diff --cached --quiet || git commit -m "chore: update property data $(date +%Y-%m-%d)"
             git push
 
+        - name: Notify new properties and delisted alerts
+          env:
+            DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          run: |
+            python notify.py output/data.json docs/likes.json || true
+
         - name: Deploy to Cloudflare Pages
           uses: cloudflare/wrangler-action@v3
           with:
