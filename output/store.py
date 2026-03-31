@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 JST = timezone(timedelta(hours=9))
 STORE_PATH = Path(__file__).parent / "data.json"
+LIKES_PATH = Path(__file__).parent.parent / "docs" / "likes.json"
 
 
 def _to_dict(prop: Property, ev: Evaluation) -> dict:
@@ -97,9 +98,23 @@ def toggle_like(prop_url: str) -> bool:
     return new_liked
 
 
+def _load_likes_urls() -> set[str]:
+    """Load liked URLs from docs/likes.json (synced from browser)."""
+    if LIKES_PATH.exists():
+        try:
+            return set(json.loads(LIKES_PATH.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return set()
+
+
 def get_liked() -> list[dict]:
-    """Return all liked properties."""
-    return [p for p in load_all() if p.get("liked")]
+    """Return all liked properties from likes.json or data.json."""
+    likes_urls = _load_likes_urls()
+    all_props = load_all()
+    if likes_urls:
+        return [p for p in all_props if p.get("url") in likes_urls]
+    return [p for p in all_props if p.get("liked")]
 
 
 def get_preferences() -> dict:

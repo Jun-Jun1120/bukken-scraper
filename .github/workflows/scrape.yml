@@ -49,8 +49,21 @@
               output/report.html
             retention-days: 30
 
-        - name: Update dashboard data and commit
+        - name: Merge likes into data and update dashboard
           run: |
+            python3 -c "
+            import json
+            from pathlib import Path
+            data_path = Path('output/data.json')
+            likes_path = Path('docs/likes.json')
+            if data_path.exists() and likes_path.exists():
+                data = json.loads(data_path.read_text())
+                likes = set(json.loads(likes_path.read_text()))
+                for p in data:
+                    p['liked'] = p.get('url', '') in likes
+                data_path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+                print(f'Merged {len(likes)} likes into {len(data)} properties')
+            " || true
             cp output/data.json docs/data.json || true
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"

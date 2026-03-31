@@ -64,6 +64,23 @@ body {
 .filter-group select:focus, .filter-group input:focus { outline: none; border-color: var(--accent); }
 .filter-group input[type="number"] { width: 80px; }
 
+/* Saved filters */
+.saved-filters { display: flex; gap: 6px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.saved-filters .preset-btn {
+  padding: 5px 12px; border-radius: 20px; border: 1.5px solid var(--border);
+  background: white; font-size: 12px; cursor: pointer; transition: all .2s;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.saved-filters .preset-btn:hover { border-color: var(--accent); background: #f0f4ff; }
+.saved-filters .preset-btn.active { border-color: var(--accent); background: var(--accent); color: white; }
+.saved-filters .preset-del { font-size: 10px; opacity: .5; cursor: pointer; margin-left: 2px; }
+.saved-filters .preset-del:hover { opacity: 1; color: var(--red); }
+.saved-filters .preset-save {
+  padding: 5px 12px; border-radius: 20px; border: 1.5px dashed var(--border);
+  background: transparent; font-size: 12px; cursor: pointer; color: var(--muted); transition: all .2s;
+}
+.saved-filters .preset-save:hover { border-color: var(--accent); color: var(--accent); }
+
 /* Prefs bar */
 .prefs-bar {
   background: linear-gradient(135deg, #f0f7ff, #fef1f7); border-radius: var(--radius);
@@ -295,6 +312,9 @@ body {
   <h1>物件ダッシュボード</h1>
   <div class="header-actions">
     <span class="status-text" id="status">毎朝7時に自動更新</span>
+    <button class="btn btn-outline" id="btn-sync" title="いいねデータをGitHubに同期">同期</button>
+    <button class="btn btn-outline" id="btn-export-likes" title="いいねデータをエクスポート">Export</button>
+    <label class="btn btn-outline" style="cursor:pointer" title="いいねデータをインポート">Import<input type="file" id="btn-import-likes" accept=".json" style="display:none"></label>
   </div>
 </div>
 
@@ -344,6 +364,15 @@ body {
         </div>
       </div>
       <div class="filter-group">
+        <label>築年数</label>
+        <select id="f-age">
+          <option value="">すべて</option>
+          <option value="3">3年以内</option><option value="5">5年以内</option>
+          <option value="10">10年以内</option><option value="15">15年以内</option>
+          <option value="20">20年以内</option><option value="30">30年以内</option>
+        </select>
+      </div>
+      <div class="filter-group">
         <label>&nbsp;</label>
         <button class="btn btn-outline" id="btn-reset" style="font-size:12px;padding:6px 14px">リセット</button>
       </div>
@@ -355,8 +384,13 @@ body {
       </label>
       <div id="station-checks" style="display:none;flex-wrap:wrap;gap:4px 8px;max-height:200px;overflow-y:auto;padding:8px 0"></div>
     </div>
+    <div class="saved-filters" id="saved-filters"></div>
   </div>
 
+  <div class="prefs-bar" id="prefs-bar">
+    <span class="prefs-icon">&#10084;</span>
+    <span class="prefs-text" id="prefs-text"></span>
+  </div>
 
   <div class="toolbar">
     <div class="result-count" id="result-count"></div>
@@ -570,18 +604,28 @@ $('#station-toggle').addEventListener('click', () => {
   $('#station-arrow').textContent = stationFilterOpen ? '\u25B2' : '\u25BC';
 });
 
-// Fetch (static mode - load from data.json)
+// Likes Store (localStorage)
+const LikesStore = {
+  KEY: 'bukken-likes',
+  _load() { try { return new Set(JSON.parse(localStorage.getItem(this.KEY)) || []); } catch { return new Set(); } },
+  _save(s) { localStorage.setItem(this.KEY, JSON.stringify([...s])); },
+  isLiked(url) { return this._load().has(url); },
+  toggle(url) { const s = this._load(); const liked = !s.has(url); liked ? s.add(url) : s.delete(url); this._save(s); return liked; },
+  getAll() { return this._load(); },
+  export() { return [...this._load()]; },
+  import(urls) { const s = this._load(); urls.forEach(u => s.add(u)); this._save(s); },
+};
+
+// Fetch
 async function loadData() {
-  try {
-    const res = await fetch('data.json');
-    allData = await res.json();
-    $('#status').textContent = `${allData.length}件 | 毎朝7時に自動更新`;
-  } catch (e) {
-    $('#status').textContent = 'データ読み込み失敗';
-    allData = [];
-  }
+  const res = await fetch('data.json');
+  allData = await res.json();
+  // Merge localStorage likes
+  const likes = LikesStore.getAll();
+  allData.forEach(p => { p.liked = likes.has(p.url); });
   buildStationFilter();
   applyFilters();
+  updatePrefsBar();
 }
 
 // Stats
@@ -591,13 +635,13 @@ function renderStats() {
   const best = Math.max(...d.map(p => p.score));
   const avg = Math.round(d.reduce((a, p) => a + p.score, 0) / d.length);
   const cheapest = Math.min(...d.map(p => p.total_rent));
-  const sources = [...new Set(d.map(p => p.source))].length;
+  const liked = d.filter(p => p.liked).length;
   $('#stats').innerHTML = `
     <div class="stat-card"><div class="stat-val">${d.length}</div><div class="stat-lbl">物件数</div></div>
     <div class="stat-card"><div class="stat-val" style="color:${scoreColor(best)}">${best}</div><div class="stat-lbl">最高スコア</div></div>
     <div class="stat-card"><div class="stat-val">${rentText(cheapest)}</div><div class="stat-lbl">最安家賃</div></div>
     <div class="stat-card"><div class="stat-val">${avg}</div><div class="stat-lbl">平均スコア</div></div>
-    <div class="stat-card"><div class="stat-val">${sources}</div><div class="stat-lbl">サイト数</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--red)">${liked}</div><div class="stat-lbl">いいね</div></div>
   `;
 }
 
@@ -610,12 +654,22 @@ function applyFilters() {
   const source = $('#f-source').value;
   const areaMin = parseFloat($('#f-area-min').value) || 0;
   const areaMax = parseFloat($('#f-area-max').value) || Infinity;
+  const maxAge = parseInt($('#f-age').value) || 0;
+  const currentYear = new Date().getFullYear();
   filtered = allData.filter(p => {
     if (p.total_rent < rentMin || p.total_rent > rentMax) return false;
     if (layout && !p.layout.includes(layout)) return false;
     if (p.score < scoreMin) return false;
     if (source && p.source !== source) return false;
     if (p.area_sqm < areaMin || p.area_sqm > areaMax) return false;
+    if (maxAge > 0) {
+      const yb = p.year_built || '';
+      if (yb.includes('新築')) { /* pass */ }
+      else {
+        const m = yb.match(/(\d{4})/);
+        if (!m || currentYear - parseInt(m[1]) > maxAge) return false;
+      }
+    }
     // Station filter
     if (selectedStations.size > 0) {
       const propStations = extractStations(p.station_access);
@@ -704,6 +758,9 @@ function renderCards() {
             <div class="card-station">${esc(p.station_access)}</div>
           </div>
           <div class="card-score-area">
+            <button class="like-btn ${p.liked ? 'liked' : ''}" onclick="event.stopPropagation();toggleLike(${start + i})" title="いいね">
+              ${p.liked ? '&#10084;' : '&#9825;'}
+            </button>
             <div class="score-circle" style="background:${scoreBg(p.score)};color:${scoreColor(p.score)}">
               ${p.score}<small>/100</small>
             </div>
@@ -753,6 +810,9 @@ function showDetail(idx) {
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
       <span class="source-badge" style="background:${sourceColor(p.source)}18;color:${sourceColor(p.source)}">${esc(p.source)}</span>
       ${rankBadge(rank)}
+      <button class="like-btn ${p.liked ? 'liked' : ''}" onclick="toggleLike(${idx});showDetail(${idx})" style="font-size:28px" title="いいね">
+        ${p.liked ? '&#10084;' : '&#9825;'}
+      </button>
     </div>
     <h2>${esc(p.name)}</h2>
     <div class="address">${esc(p.address)}</div>
@@ -803,17 +863,216 @@ $$('.sort-btn').forEach(btn => {
 });
 
 // Filter listeners
-['#f-rent-min','#f-rent-max','#f-layout','#f-score','#f-source','#f-area-min','#f-area-max'].forEach(s => {
+['#f-rent-min','#f-rent-max','#f-layout','#f-score','#f-source','#f-area-min','#f-area-max','#f-age'].forEach(s => {
   $(s).addEventListener('input', applyFilters);
 });
 $('#per-page').addEventListener('change', renderCards);
 $('#btn-reset').addEventListener('click', () => {
   ['#f-rent-min','#f-rent-max','#f-area-min','#f-area-max'].forEach(s => $(s).value = '');
-  ['#f-layout','#f-score','#f-source'].forEach(s => $(s).value = '');
+  ['#f-layout','#f-score','#f-source','#f-age'].forEach(s => $(s).value = '');
   selectedStations.clear();
   $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = true);
   updateStationCount();
+  activePreset = null;
+  renderPresets();
   applyFilters();
+});
+
+// Saved filter presets
+const PRESETS_KEY = 'bukken-filter-presets';
+let activePreset = null;
+
+function getPresets() {
+  try { return JSON.parse(localStorage.getItem(PRESETS_KEY)) || []; }
+  catch { return []; }
+}
+
+function savePresets(presets) {
+  localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+}
+
+function getCurrentFilters() {
+  return {
+    rentMin: $('#f-rent-min').value,
+    rentMax: $('#f-rent-max').value,
+    layout: $('#f-layout').value,
+    score: $('#f-score').value,
+    source: $('#f-source').value,
+    areaMin: $('#f-area-min').value,
+    areaMax: $('#f-area-max').value,
+    age: $('#f-age').value,
+    stations: [...selectedStations],
+  };
+}
+
+function applyPreset(preset) {
+  $('#f-rent-min').value = preset.filters.rentMin || '';
+  $('#f-rent-max').value = preset.filters.rentMax || '';
+  $('#f-layout').value = preset.filters.layout || '';
+  $('#f-score').value = preset.filters.score || '';
+  $('#f-source').value = preset.filters.source || '';
+  $('#f-area-min').value = preset.filters.areaMin || '';
+  $('#f-area-max').value = preset.filters.areaMax || '';
+  $('#f-age').value = preset.filters.age || '';
+  const st = new Set(preset.filters.stations || []);
+  if (st.size > 0) {
+    selectedStations = st;
+    $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.checked = selectedStations.has(cb.value);
+    });
+  } else {
+    selectedStations.clear();
+    $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = true);
+  }
+  updateStationCount();
+  activePreset = preset.name;
+  renderPresets();
+  applyFilters();
+}
+
+function deletePreset(name) {
+  const presets = getPresets().filter(p => p.name !== name);
+  savePresets(presets);
+  if (activePreset === name) activePreset = null;
+  renderPresets();
+}
+
+function saveNewPreset() {
+  const name = prompt('条件名を入力してください:');
+  if (!name || !name.trim()) return;
+  const presets = getPresets().filter(p => p.name !== name.trim());
+  presets.push({ name: name.trim(), filters: getCurrentFilters() });
+  savePresets(presets);
+  activePreset = name.trim();
+  renderPresets();
+}
+
+function renderPresets() {
+  const presets = getPresets();
+  const container = $('#saved-filters');
+  if (!presets.length) {
+    container.innerHTML = '<button class="preset-save" onclick="saveNewPreset()">+ 条件を保存</button>';
+    return;
+  }
+  let html = '';
+  for (const p of presets) {
+    const cls = activePreset === p.name ? 'preset-btn active' : 'preset-btn';
+    html += `<button class="${cls}" onclick="applyPreset(${esc(JSON.stringify(JSON.stringify(p)))})">
+      ${esc(p.name)}<span class="preset-del" onclick="event.stopPropagation();deletePreset(${esc(JSON.stringify(JSON.stringify(p.name)))})">&#10005;</span>
+    </button>`;
+  }
+  html += '<button class="preset-save" onclick="saveNewPreset()">+ 保存</button>';
+  container.innerHTML = html;
+}
+
+// Fix: applyPreset from inline onclick needs to parse JSON string
+const _origApplyPreset = applyPreset;
+applyPreset = function(arg) {
+  if (typeof arg === 'string') arg = JSON.parse(arg);
+  _origApplyPreset(arg);
+};
+const _origDeletePreset = deletePreset;
+deletePreset = function(arg) {
+  if (typeof arg === 'string') {
+    try { arg = JSON.parse(arg); } catch {}
+  }
+  _origDeletePreset(arg);
+};
+
+renderPresets();
+
+// Like (localStorage)
+function toggleLike(idx) {
+  const p = filtered[idx]; if (!p) return;
+  const liked = LikesStore.toggle(p.url);
+  p.liked = liked;
+  const orig = allData.find(d => d.url === p.url);
+  if (orig) orig.liked = liked;
+  renderCards();
+  renderStats();
+  updatePrefsBar();
+}
+
+// Preferences (client-side computation)
+function updatePrefsBar() {
+  const liked = allData.filter(p => p.liked);
+  const bar = $('#prefs-bar');
+  if (liked.length === 0) { bar.classList.remove('visible'); return; }
+  bar.classList.add('visible');
+
+  const rents = liked.map(p => p.total_rent).filter(Boolean);
+  const areas = liked.map(p => p.area_sqm).filter(Boolean);
+  const layoutMap = {};
+  liked.forEach(p => { if (p.layout) layoutMap[p.layout] = (layoutMap[p.layout] || 0) + 1; });
+  const stationMap = {};
+  liked.forEach(p => {
+    if (!p.station_access) return;
+    const m = p.station_access.match(/([^\s/]+駅)/);
+    if (m) stationMap[m[1]] = (stationMap[m[1]] || 0) + 1;
+  });
+
+  const parts = [];
+  if (rents.length) parts.push(`家賃${Math.round(Math.min(...rents)/10000)}〜${Math.round(Math.max(...rents)/10000)}万円`);
+  if (areas.length) parts.push(`面積${Math.min(...areas)}〜${Math.max(...areas)}m2`);
+  const topLayout = Object.entries(layoutMap).sort((a,b) => b[1]-a[1])[0];
+  if (topLayout) parts.push(`${topLayout[0]}が好み`);
+  const topStation = Object.entries(stationMap).sort((a,b) => b[1]-a[1])[0];
+  if (topStation) parts.push(`${topStation[0]}周辺`);
+
+  $('#prefs-text').innerHTML = `<span class="prefs-count">${liked.length}件いいね</span> &rarr; ${esc(parts.join('、') || '分析中...')}`;
+}
+
+// GitHub Sync
+$('#btn-sync').addEventListener('click', async () => {
+  const GH_TOKEN_KEY = 'bukken-gh-token';
+  let token = localStorage.getItem(GH_TOKEN_KEY);
+  if (!token) {
+    token = prompt('GitHub Personal Access Token を入力 (fine-grained, contents:write):');
+    if (!token) return;
+    localStorage.setItem(GH_TOKEN_KEY, token);
+  }
+  const likes = LikesStore.export();
+  try {
+    $('#status').textContent = '同期中...';
+    const res = await fetch('https://api.github.com/repos/Jun-Jun1120/bukken-scraper/dispatches', {
+      method: 'POST',
+      headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_type: 'sync-likes', client_payload: { likes } }),
+    });
+    if (res.status === 204) {
+      $('#status').textContent = `同期完了 (${likes.length}件)`;
+    } else if (res.status === 401 || res.status === 403) {
+      localStorage.removeItem(GH_TOKEN_KEY);
+      $('#status').textContent = 'トークンが無効です。再試行してください';
+    } else {
+      $('#status').textContent = `同期失敗 (${res.status})`;
+    }
+  } catch (e) {
+    $('#status').textContent = '同期エラー';
+  }
+  setTimeout(() => { $('#status').textContent = '毎朝7時に自動更新'; }, 5000);
+});
+
+// Export/Import Likes
+$('#btn-export-likes').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(LikesStore.export(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'bukken-likes.json'; a.click();
+});
+$('#btn-import-likes').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  const text = await file.text();
+  try {
+    const urls = JSON.parse(text);
+    if (Array.isArray(urls)) {
+      LikesStore.import(urls);
+      allData.forEach(p => { p.liked = LikesStore.isLiked(p.url); });
+      renderCards(); renderStats(); updatePrefsBar();
+      $('#status').textContent = `${urls.length}件インポート完了`;
+      setTimeout(() => { $('#status').textContent = '毎朝7時に自動更新'; }, 3000);
+    }
+  } catch { alert('JSONファイルが不正です'); }
+  e.target.value = '';
 });
 
 // Init

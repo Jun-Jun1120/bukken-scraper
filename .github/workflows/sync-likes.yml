@@ -1,0 +1,34 @@
+name: Sync Likes
+
+on:
+  repository_dispatch:
+    types: [sync-likes]
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write likes.json
+        run: |
+          echo '${{ toJSON(github.event.client_payload.likes) }}' | python3 -c "
+          import sys, json
+          likes = json.load(sys.stdin)
+          with open('docs/likes.json', 'w') as f:
+              json.dump(sorted(set(likes)), f, ensure_ascii=False, indent=2)
+          print(f'Wrote {len(likes)} likes')
+          "
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/likes.json
+          git diff --cached --quiet || git commit -m "chore: sync liked properties ($(date +%Y-%m-%d))"
+          git push
