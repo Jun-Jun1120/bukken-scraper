@@ -14,3 +14,4 @@ output/*.csv
 output/report.html
 .claude/
 output/*.log
+.wrangler/
