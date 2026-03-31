@@ -151,10 +151,13 @@ async def _run_pipeline_async(
         logger.info("No properties within range. Exiting pipeline.")
         return
 
-    # 3. AI evaluation (or skip)
-    if skip_ai:
-        from ai.evaluator import Evaluation
+    # 3. AI evaluation (only new properties, reuse existing evaluations)
+    from ai.evaluator import Evaluation
+    from output.store import load_all as _load_existing
 
+    existing_data = {p["url"]: p for p in _load_existing()}
+
+    if skip_ai:
         evaluated = [
             (prop, Evaluation(
                 property_url=prop.url,
@@ -167,8 +170,38 @@ async def _run_pipeline_async(
             for prop in properties
         ]
     else:
-        logger.info("Evaluating %d properties with Claude...", len(properties))
-        evaluated = await evaluate_properties(properties, config)
+        # Split into already-evaluated and new
+        new_props: list[Property] = []
+        reused: list[tuple[Property, Evaluation]] = []
+        for prop in properties:
+            ex = existing_data.get(prop.url)
+            if ex and ex.get("score", 0) > 0:
+                reused.append((prop, Evaluation(
+                    property_url=prop.url,
+                    score=ex["score"],
+                    comment=ex.get("comment", ""),
+                    pros=tuple(ex.get("pros", ())),
+                    cons=tuple(ex.get("cons", ())),
+                    recommendation=ex.get("recommendation", ""),
+                )))
+            else:
+                new_props.append(prop)
+
+        logger.info(
+            "AI evaluation: %d new, %d reused (already evaluated)",
+            len(new_props), len(reused),
+        )
+
+        if new_props:
+            new_evaluated = await evaluate_properties(new_props, config)
+        else:
+            new_evaluated = []
+
+        evaluated = sorted(
+            reused + new_evaluated,
+            key=lambda x: x[1].score,
+            reverse=True,
+        )
 
     # 4. Output
     csv_path = write_to_csv(evaluated)

@@ -1,5 +1,6 @@
 """Search criteria and application configuration."""
 
+import os
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -49,9 +50,9 @@ class SheetsConfig:
     """Google Sheets output configuration."""
 
     credentials_path: str = "credentials.json"
-    spreadsheet_id: str = "1VQTTCY06xAwtbbmS8pigl1ZKnewRqZEc_8MeRVozw0U"
+    spreadsheet_id: str = field(default_factory=lambda: os.environ.get("SHEETS_ID", ""))
     worksheet_name: str = "データ"
-    share_with_email: str = "aioueooo1120@gmail.com"
+    share_with_email: str = field(default_factory=lambda: os.environ.get("SHEETS_EMAIL", ""))
 
 
 @dataclass(frozen=True)
