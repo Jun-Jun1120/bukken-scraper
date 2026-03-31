@@ -1313,7 +1313,7 @@ $('#btn-scrape').addEventListener('click', async () => {
   try {
     $('#btn-scrape').disabled = true;
     $('#status').textContent = 'スクレイピング開始中...';
-    const res = await fetch('https://api.github.com/repos/Jun-Jun1120/bukken-scraper/actions/workflows/scrape.yml/dispatches', {
+    const res = await fetch('https://api.github.com/repos/Jun-Jun1120/bukken-scraper/actions/workflows/253880933/dispatches', {
       method: 'POST',
       headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ref: 'main' }),
