@@ -81,4 +81,4 @@
           uses: cloudflare/wrangler-action@v3
           with:
             apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-            command: pages deploy docs --project-name bukken-dashboard
+            command: pages deploy docs --project-name bukken-dashboard --commit-dirty=true
