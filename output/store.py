@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 JST = timezone(timedelta(hours=9))
 STORE_PATH = Path(__file__).parent / "data.json"
 LIKES_PATH = Path(__file__).parent.parent / "docs" / "likes.json"
+DISLIKES_PATH = Path(__file__).parent.parent / "docs" / "dislikes.json"
 
 
 def _to_dict(prop: Property, ev: Evaluation) -> dict:
@@ -108,6 +109,16 @@ def _load_likes_urls() -> set[str]:
     return set()
 
 
+def _load_dislikes_urls() -> set[str]:
+    """Load disliked URLs from docs/dislikes.json."""
+    if DISLIKES_PATH.exists():
+        try:
+            return set(json.loads(DISLIKES_PATH.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return set()
+
+
 def get_liked() -> list[dict]:
     """Return all liked properties from likes.json or data.json."""
     likes_urls = _load_likes_urls()
@@ -117,71 +128,138 @@ def get_liked() -> list[dict]:
     return [p for p in all_props if p.get("liked")]
 
 
-def get_preferences() -> dict:
-    """Analyze liked properties to extract user preferences."""
-    liked = get_liked()
-    if not liked:
-        return {"count": 0, "summary": "まだいいねがありません", "patterns": {}}
+def get_disliked() -> list[dict]:
+    """Return all disliked properties."""
+    dislike_urls = _load_dislikes_urls()
+    if not dislike_urls:
+        return []
+    return [p for p in load_all() if p.get("url") in dislike_urls]
 
-    rents = [p["total_rent"] for p in liked if p["total_rent"]]
-    areas = [p["area_sqm"] for p in liked if p["area_sqm"]]
-    layouts = [p["layout"] for p in liked if p["layout"]]
+
+def _count_items(items: list[str]) -> list[tuple[str, int]]:
+    """Count occurrences and return sorted (item, count) pairs."""
+    counts: dict[str, int] = {}
+    for item in items:
+        if item:
+            counts[item] = counts.get(item, 0) + 1
+    return sorted(counts.items(), key=lambda x: -x[1])
+
+
+def _extract_stations(props: list[dict]) -> list[str]:
+    """Extract station names from properties."""
     stations = []
-    for p in liked:
-        if p.get("station_access"):
-            # Extract station name
-            parts = p["station_access"].split("/")
-            for part in parts:
-                if "駅" in part:
-                    station = part.split("駅")[0].split("/")[-1].strip() + "駅"
-                    stations.append(station)
-                    break
+    for p in props:
+        if not p.get("station_access"):
+            continue
+        import re
+        matches = re.findall(r"([^\s/]+駅)", p["station_access"])
+        if matches:
+            stations.append(matches[0])
+    return stations
 
-    # Count layout preferences
-    layout_counts = {}
-    for l in layouts:
-        layout_counts[l] = layout_counts.get(l, 0) + 1
 
-    # Count station preferences
-    station_counts = {}
-    for s in stations:
-        station_counts[s] = station_counts.get(s, 0) + 1
+def _extract_features(props: list[dict]) -> list[str]:
+    """Extract all equipment features from properties."""
+    features = []
+    for p in props:
+        features.extend(p.get("features", []))
+    return features
 
-    # Top liked features
-    liked_pros = []
-    for p in liked:
-        liked_pros.extend(p.get("pros", []))
+
+def _extract_year_built(props: list[dict]) -> list[int]:
+    """Extract build years as integers."""
+    import re
+    years = []
+    for p in props:
+        yb = p.get("year_built", "")
+        m = re.search(r"(\d{4})", yb)
+        if m:
+            years.append(int(m.group(1)))
+    return years
+
+
+def get_preferences() -> dict:
+    """Analyze liked/disliked properties to extract detailed preferences."""
+    liked = get_liked()
+    disliked = get_disliked()
+
+    if not liked and not disliked:
+        return {"count": 0, "dislike_count": 0, "summary": "まだいいねがありません", "patterns": {}, "dislike_patterns": {}}
+
+    # --- Liked patterns ---
+    l_rents = [p["total_rent"] for p in liked if p.get("total_rent")]
+    l_areas = [p["area_sqm"] for p in liked if p.get("area_sqm")]
+    l_layouts = [p["layout"] for p in liked if p.get("layout")]
+    l_stations = _extract_stations(liked)
+    l_features = _extract_features(liked)
+    l_years = _extract_year_built(liked)
+    l_directions = [p["direction"] for p in liked if p.get("direction")]
+    l_building_types = [p["building_type"] for p in liked if p.get("building_type")]
+    l_floors = [p["floor"] for p in liked if p.get("floor")]
 
     patterns = {
-        "avg_rent": int(sum(rents) / len(rents)) if rents else 0,
-        "rent_range": [min(rents), max(rents)] if rents else [],
-        "avg_area": round(sum(areas) / len(areas), 1) if areas else 0,
-        "area_range": [min(areas), max(areas)] if areas else [],
-        "preferred_layouts": sorted(layout_counts.items(), key=lambda x: -x[1]),
-        "preferred_stations": sorted(station_counts.items(), key=lambda x: -x[1])[:5],
-        "liked_features": liked_pros[:10],
+        "avg_rent": int(sum(l_rents) / len(l_rents)) if l_rents else 0,
+        "rent_range": [min(l_rents), max(l_rents)] if l_rents else [],
+        "avg_area": round(sum(l_areas) / len(l_areas), 1) if l_areas else 0,
+        "area_range": [min(l_areas), max(l_areas)] if l_areas else [],
+        "preferred_layouts": _count_items(l_layouts),
+        "preferred_stations": _count_items(l_stations)[:8],
+        "preferred_features": _count_items(l_features)[:15],
+        "preferred_directions": _count_items(l_directions),
+        "preferred_building_types": _count_items(l_building_types),
+        "preferred_floors": _count_items(l_floors)[:5],
+        "year_range": [min(l_years), max(l_years)] if l_years else [],
+        "avg_year": int(sum(l_years) / len(l_years)) if l_years else 0,
     }
 
+    # --- Disliked patterns (what to avoid) ---
+    d_rents = [p["total_rent"] for p in disliked if p.get("total_rent")]
+    d_layouts = [p["layout"] for p in disliked if p.get("layout")]
+    d_stations = _extract_stations(disliked)
+    d_features = _extract_features(disliked)
+    d_building_types = [p["building_type"] for p in disliked if p.get("building_type")]
+
+    # Features that appear in dislikes but NOT in likes
+    liked_feature_set = {f for f in l_features}
+    dislike_only_features = [f for f in d_features if f not in liked_feature_set]
+
+    dislike_patterns = {
+        "avoided_layouts": _count_items(d_layouts),
+        "avoided_stations": _count_items(d_stations)[:5],
+        "avoided_features": _count_items(dislike_only_features)[:10],
+        "avoided_building_types": _count_items(d_building_types),
+    }
+
+    # --- Summary ---
     summary_parts = []
-    if rents:
-        summary_parts.append(f"家賃{min(rents)//10000}〜{max(rents)//10000}万円")
-    if areas:
-        summary_parts.append(f"面積{min(areas)}〜{max(areas)}㎡")
-    if layout_counts:
-        top_layout = max(layout_counts, key=layout_counts.get)
-        summary_parts.append(f"{top_layout}が好み")
-    if station_counts:
-        top_station = max(station_counts, key=station_counts.get)
-        summary_parts.append(f"{top_station}周辺")
+    if l_rents:
+        summary_parts.append(f"家賃{min(l_rents)//10000}〜{max(l_rents)//10000}万円")
+    if l_areas:
+        summary_parts.append(f"面積{min(l_areas)}〜{max(l_areas)}㎡")
+    if patterns["preferred_layouts"]:
+        summary_parts.append(f"{patterns['preferred_layouts'][0][0]}が好み")
+    if patterns["preferred_stations"]:
+        summary_parts.append(f"{patterns['preferred_stations'][0][0]}周辺")
+    if l_years:
+        summary_parts.append(f"築{2026 - max(l_years)}〜{2026 - min(l_years)}年")
 
     return {
         "count": len(liked),
+        "dislike_count": len(disliked),
         "summary": "、".join(summary_parts) if summary_parts else "分析中...",
         "patterns": patterns,
+        "dislike_patterns": dislike_patterns,
         "liked_properties": [
             {"name": p["name"], "total_rent": p["total_rent"], "layout": p["layout"],
              "area_sqm": p["area_sqm"], "station_access": p["station_access"],
-             "pros": p.get("pros", [])}
+             "year_built": p.get("year_built", ""), "building_type": p.get("building_type", ""),
+             "direction": p.get("direction", ""), "features": p.get("features", []),
+             "pros": p.get("pros", []), "cons": p.get("cons", [])}
             for p in liked
+        ],
+        "disliked_properties": [
+            {"name": p["name"], "total_rent": p["total_rent"], "layout": p["layout"],
+             "cons": p.get("cons", [])}
+            for p in disliked[:5]
         ],
     }

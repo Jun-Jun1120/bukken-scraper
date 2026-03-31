@@ -15,20 +15,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Write likes.json
+      - name: Write likes.json and dislikes.json
         run: |
-          echo '${{ toJSON(github.event.client_payload.likes) }}' | python3 -c "
-          import sys, json
-          likes = json.load(sys.stdin)
+          python3 -c "
+          import json, os
+          likes = ${{ toJSON(github.event.client_payload.likes) }}
           with open('docs/likes.json', 'w') as f:
               json.dump(sorted(set(likes)), f, ensure_ascii=False, indent=2)
           print(f'Wrote {len(likes)} likes')
           "
+          python3 -c "
+          import json
+          dislikes = ${{ toJSON(github.event.client_payload.dislikes) }}
+          with open('docs/dislikes.json', 'w') as f:
+              json.dump(sorted(set(dislikes)), f, ensure_ascii=False, indent=2)
+          print(f'Wrote {len(dislikes)} dislikes')
+          " || true
 
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/likes.json
-          git diff --cached --quiet || git commit -m "chore: sync liked properties ($(date +%Y-%m-%d))"
+          git add docs/likes.json docs/dislikes.json
+          git diff --cached --quiet || git commit -m "chore: sync likes/dislikes ($(date +%Y-%m-%d))"
           git push

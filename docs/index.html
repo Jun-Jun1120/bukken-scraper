@@ -168,6 +168,12 @@ body {
 .like-btn:hover { background: #fef2f2; transform: scale(1.3); }
 .like-btn.liked { color: var(--red); }
 .like-btn:not(.liked) { color: #d1d5db; }
+.dislike-btn {
+  background: none; border: none; font-size: 16px; cursor: pointer;
+  padding: 2px 6px; border-radius: 50%; transition: all .2s; line-height: 1; color: #d1d5db;
+}
+.dislike-btn:hover { background: #f3f4f6; transform: scale(1.3); }
+.dislike-btn.disliked { color: var(--muted); opacity: .8; }
 .score-circle {
   width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   flex-direction: column; font-weight: 800; font-size: 22px; line-height: 1;
@@ -610,19 +616,43 @@ const LikesStore = {
   _load() { try { return new Set(JSON.parse(localStorage.getItem(this.KEY)) || []); } catch { return new Set(); } },
   _save(s) { localStorage.setItem(this.KEY, JSON.stringify([...s])); },
   isLiked(url) { return this._load().has(url); },
-  toggle(url) { const s = this._load(); const liked = !s.has(url); liked ? s.add(url) : s.delete(url); this._save(s); return liked; },
+  toggle(url) {
+    const s = this._load(); const liked = !s.has(url);
+    liked ? s.add(url) : s.delete(url); this._save(s);
+    // Remove from dislikes if liking
+    if (liked) { const d = DislikesStore._load(); d.delete(url); DislikesStore._save(d); }
+    return liked;
+  },
   getAll() { return this._load(); },
   export() { return [...this._load()]; },
   import(urls) { const s = this._load(); urls.forEach(u => s.add(u)); this._save(s); },
+};
+
+// Dislikes Store (localStorage)
+const DislikesStore = {
+  KEY: 'bukken-dislikes',
+  _load() { try { return new Set(JSON.parse(localStorage.getItem(this.KEY)) || []); } catch { return new Set(); } },
+  _save(s) { localStorage.setItem(this.KEY, JSON.stringify([...s])); },
+  isDisliked(url) { return this._load().has(url); },
+  toggle(url) {
+    const s = this._load(); const disliked = !s.has(url);
+    disliked ? s.add(url) : s.delete(url); this._save(s);
+    // Remove from likes if disliking
+    if (disliked) { const l = LikesStore._load(); l.delete(url); LikesStore._save(l); }
+    return disliked;
+  },
+  getAll() { return this._load(); },
+  export() { return [...this._load()]; },
 };
 
 // Fetch
 async function loadData() {
   const res = await fetch('data.json');
   allData = await res.json();
-  // Merge localStorage likes
+  // Merge localStorage likes & dislikes
   const likes = LikesStore.getAll();
-  allData.forEach(p => { p.liked = likes.has(p.url); });
+  const dislikes = DislikesStore.getAll();
+  allData.forEach(p => { p.liked = likes.has(p.url); p.disliked = dislikes.has(p.url); });
   buildStationFilter();
   applyFilters();
   updatePrefsBar();
@@ -765,6 +795,9 @@ function renderCards() {
               ${p.score}<small>/100</small>
             </div>
             ${recBadge(p.recommendation)}
+            <button class="dislike-btn ${p.disliked ? 'disliked' : ''}" onclick="event.stopPropagation();toggleDislike(${start + i})" title="興味なし">
+              ${p.disliked ? '&#128683;' : '&#128078;'}
+            </button>
           </div>
         </div>
         ${(pro1 || con1 || comment) ? `
@@ -812,6 +845,9 @@ function showDetail(idx) {
       ${rankBadge(rank)}
       <button class="like-btn ${p.liked ? 'liked' : ''}" onclick="toggleLike(${idx});showDetail(${idx})" style="font-size:28px" title="いいね">
         ${p.liked ? '&#10084;' : '&#9825;'}
+      </button>
+      <button class="dislike-btn ${p.disliked ? 'disliked' : ''}" onclick="toggleDislike(${idx});showDetail(${idx})" style="font-size:22px" title="興味なし">
+        ${p.disliked ? '&#128683;' : '&#128078;'}
       </button>
     </div>
     <h2>${esc(p.name)}</h2>
@@ -986,11 +1022,21 @@ function toggleLike(idx) {
   const p = filtered[idx]; if (!p) return;
   const liked = LikesStore.toggle(p.url);
   p.liked = liked;
+  if (liked) p.disliked = false;
   const orig = allData.find(d => d.url === p.url);
-  if (orig) orig.liked = liked;
-  renderCards();
-  renderStats();
-  updatePrefsBar();
+  if (orig) { orig.liked = liked; if (liked) orig.disliked = false; }
+  renderCards(); renderStats(); updatePrefsBar();
+}
+
+// Dislike (localStorage)
+function toggleDislike(idx) {
+  const p = filtered[idx]; if (!p) return;
+  const disliked = DislikesStore.toggle(p.url);
+  p.disliked = disliked;
+  if (disliked) p.liked = false;
+  const orig = allData.find(d => d.url === p.url);
+  if (orig) { orig.disliked = disliked; if (disliked) orig.liked = false; }
+  renderCards(); renderStats(); updatePrefsBar();
 }
 
 // Preferences (client-side computation)
@@ -1019,7 +1065,9 @@ function updatePrefsBar() {
   const topStation = Object.entries(stationMap).sort((a,b) => b[1]-a[1])[0];
   if (topStation) parts.push(`${topStation[0]}周辺`);
 
-  $('#prefs-text').innerHTML = `<span class="prefs-count">${liked.length}件いいね</span> &rarr; ${esc(parts.join('、') || '分析中...')}`;
+  const dislikeCount = allData.filter(p => p.disliked).length;
+  const countText = dislikeCount > 0 ? `${liked.length}件いいね / ${dislikeCount}件興味なし` : `${liked.length}件いいね`;
+  $('#prefs-text').innerHTML = `<span class="prefs-count">${countText}</span> &rarr; ${esc(parts.join('、') || '分析中...')}`;
 }
 
 // GitHub Sync
@@ -1032,15 +1080,16 @@ $('#btn-sync').addEventListener('click', async () => {
     localStorage.setItem(GH_TOKEN_KEY, token);
   }
   const likes = LikesStore.export();
+  const dislikes = DislikesStore.export();
   try {
     $('#status').textContent = '同期中...';
     const res = await fetch('https://api.github.com/repos/Jun-Jun1120/bukken-scraper/dispatches', {
       method: 'POST',
       headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event_type: 'sync-likes', client_payload: { likes } }),
+      body: JSON.stringify({ event_type: 'sync-likes', client_payload: { likes, dislikes } }),
     });
     if (res.status === 204) {
-      $('#status').textContent = `同期完了 (${likes.length}件)`;
+      $('#status').textContent = `同期完了 (いいね${likes.length}件, 興味なし${dislikes.length}件)`;
     } else if (res.status === 401 || res.status === 403) {
       localStorage.removeItem(GH_TOKEN_KEY);
       $('#status').textContent = 'トークンが無効です。再試行してください';

@@ -24,38 +24,87 @@ class Evaluation:
 
 
 def _build_liked_context() -> str:
-    """Build context from liked properties for personalized evaluation."""
+    """Build rich context from liked/disliked properties for personalized evaluation."""
     try:
         from output.store import get_preferences
         prefs = get_preferences()
-        if prefs["count"] == 0:
+        if prefs["count"] == 0 and prefs.get("dislike_count", 0) == 0:
             return ""
 
-        lines = ["\n## ユーザーの好み（いいねした物件から学習）"]
-        lines.append(f"- いいね数: {prefs['count']}件")
-        lines.append(f"- 傾向: {prefs['summary']}")
+        lines = ["\n## ユーザーの学習済み好み（いいね/興味なしデータから分析）"]
+        lines.append(f"- いいね: {prefs['count']}件 / 興味なし: {prefs.get('dislike_count', 0)}件")
 
         patterns = prefs.get("patterns", {})
+
+        # Liked patterns - detailed
         if patterns.get("rent_range"):
-            lines.append(f"- 好みの家賃帯: {patterns['rent_range'][0]//10000}〜{patterns['rent_range'][1]//10000}万円")
+            avg = patterns.get("avg_rent", 0)
+            lines.append(f"- 好みの家賃帯: {patterns['rent_range'][0]//10000}〜{patterns['rent_range'][1]//10000}万円 (平均{avg//10000}万円)")
         if patterns.get("area_range"):
-            lines.append(f"- 好みの面積: {patterns['area_range'][0]}〜{patterns['area_range'][1]}㎡")
+            lines.append(f"- 好みの面積: {patterns['area_range'][0]}〜{patterns['area_range'][1]}㎡ (平均{patterns.get('avg_area', 0)}㎡)")
         if patterns.get("preferred_layouts"):
             layouts = ", ".join(f"{l}({c}件)" for l, c in patterns["preferred_layouts"])
             lines.append(f"- 好みの間取り: {layouts}")
         if patterns.get("preferred_stations"):
             stations = ", ".join(f"{s}({c}件)" for s, c in patterns["preferred_stations"])
             lines.append(f"- 好みのエリア: {stations}")
+        if patterns.get("preferred_directions"):
+            dirs = ", ".join(f"{d}({c}件)" for d, c in patterns["preferred_directions"])
+            lines.append(f"- 好みの向き: {dirs}")
+        if patterns.get("preferred_building_types"):
+            types = ", ".join(f"{t}({c}件)" for t, c in patterns["preferred_building_types"])
+            lines.append(f"- 好みの構造: {types}")
+        if patterns.get("year_range"):
+            lines.append(f"- 好みの築年: {patterns['year_range'][0]}〜{patterns['year_range'][1]}年築 (平均{patterns.get('avg_year', 0)}年)")
+        if patterns.get("preferred_features"):
+            feats = ", ".join(f"{f}({c})" for f, c in patterns["preferred_features"][:10])
+            lines.append(f"- よく選ぶ設備: {feats}")
 
-        # Show liked property examples
+        # Liked property examples with full detail
         liked_props = prefs.get("liked_properties", [])
         if liked_props:
-            lines.append("\n### いいねした物件の例")
-            for p in liked_props[:5]:
-                pros = "、".join(p.get("pros", [])[:2]) or "不明"
-                lines.append(f"- {p['name']}: {p['total_rent']//10000}万円, {p['layout']}, {p['area_sqm']}㎡ → 良い点: {pros}")
+            lines.append("\n### いいねした物件の例（これらに似た物件を高評価すること）")
+            for p in liked_props[:8]:
+                parts = [f"{p['name']}"]
+                if p.get("total_rent"):
+                    parts.append(f"{p['total_rent']//10000}万円")
+                if p.get("layout"):
+                    parts.append(p["layout"])
+                if p.get("area_sqm"):
+                    parts.append(f"{p['area_sqm']}㎡")
+                if p.get("year_built"):
+                    parts.append(p["year_built"])
+                if p.get("building_type"):
+                    parts.append(p["building_type"])
+                if p.get("direction"):
+                    parts.append(f"{p['direction']}向き")
+                detail = ", ".join(parts)
+                pros = "、".join(p.get("pros", [])[:3]) or "不明"
+                feats = "、".join(p.get("features", [])[:5])
+                lines.append(f"- {detail}")
+                lines.append(f"  良い点: {pros}")
+                if feats:
+                    lines.append(f"  設備: {feats}")
 
-        lines.append("\n**重要: 上記の好みに近い物件は高く評価し、好みから外れる物件は低く評価してください。**")
+        # Disliked patterns - what to avoid
+        dislike_patterns = prefs.get("dislike_patterns", {})
+        disliked_props = prefs.get("disliked_properties", [])
+        if disliked_props or dislike_patterns.get("avoided_features"):
+            lines.append("\n### 興味なしと判断した物件の傾向（これらを避けること）")
+            if dislike_patterns.get("avoided_features"):
+                feats = ", ".join(f"{f}({c})" for f, c in dislike_patterns["avoided_features"][:8])
+                lines.append(f"- 避ける設備/特徴: {feats}")
+            if dislike_patterns.get("avoided_building_types"):
+                types = ", ".join(f"{t}({c})" for t, c in dislike_patterns["avoided_building_types"])
+                lines.append(f"- 避ける構造: {types}")
+            if dislike_patterns.get("avoided_stations"):
+                stations = ", ".join(f"{s}({c})" for s, c in dislike_patterns["avoided_stations"])
+                lines.append(f"- 興味の薄いエリア: {stations}")
+            for p in disliked_props[:3]:
+                cons = "、".join(p.get("cons", [])[:2]) or "不明"
+                lines.append(f"- NG例: {p['name']} ({p.get('total_rent', 0)//10000}万円) → {cons}")
+
+        lines.append("\n**重要: いいね物件の共通パターン（設備・構造・エリア・築年数）に近い物件はスコアを+10〜20点加算。興味なし物件のパターンに該当する場合は-10〜20点減点すること。**")
         return "\n".join(lines)
     except Exception:
         return ""
