@@ -1307,29 +1307,109 @@ function getGhToken() {
   return token;
 }
 
-// Scrape trigger
+// Scrape trigger with progress polling
+const GH_API = 'https://api.github.com/repos/Jun-Jun1120/bukken-scraper';
+let scrapePolling = null;
+
 $('#btn-scrape').addEventListener('click', async () => {
   const token = getGhToken(); if (!token) return;
   try {
     $('#btn-scrape').disabled = true;
     $('#status').textContent = 'スクレイピング開始中...';
-    const res = await fetch('https://api.github.com/repos/Jun-Jun1120/bukken-scraper/actions/workflows/253880933/dispatches', {
+    const res = await fetch(`${GH_API}/actions/workflows/253880933/dispatches`, {
       method: 'POST',
       headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ref: 'main' }),
     });
     if (res.status === 204) {
-      $('#status').textContent = 'スクレイピング開始しました (約60〜90分で完了)';
+      $('#status').textContent = '開始しました。進捗を確認中...';
+      setTimeout(() => pollScrapeProgress(token), 10000);
     } else if (res.status === 401 || res.status === 403) {
       localStorage.removeItem(GH_TOKEN_KEY);
       $('#status').textContent = 'トークンが無効です。再試行してください';
+      $('#btn-scrape').disabled = false;
     } else {
       $('#status').textContent = `開始失敗 (${res.status})`;
+      $('#btn-scrape').disabled = false;
     }
-  } catch { $('#status').textContent = 'エラーが発生しました'; }
-  $('#btn-scrape').disabled = false;
-  setTimeout(() => { $('#status').textContent = '毎朝7時に自動更新'; }, 8000);
+  } catch {
+    $('#status').textContent = 'エラーが発生しました';
+    $('#btn-scrape').disabled = false;
+  }
 });
+
+async function pollScrapeProgress(token) {
+  const headers = { 'Authorization': `token ${token}` };
+  try {
+    const res = await fetch(`${GH_API}/actions/workflows/253880933/runs?per_page=1&status=in_progress`, { headers });
+    const data = await res.json();
+    let run = data.workflow_runs?.[0];
+
+    if (!run) {
+      // Check queued
+      const res2 = await fetch(`${GH_API}/actions/workflows/253880933/runs?per_page=1&status=queued`, { headers });
+      const data2 = await res2.json();
+      run = data2.workflow_runs?.[0];
+    }
+
+    if (!run) {
+      // Check latest completed
+      const res3 = await fetch(`${GH_API}/actions/workflows/253880933/runs?per_page=1`, { headers });
+      const data3 = await res3.json();
+      const latest = data3.workflow_runs?.[0];
+      if (latest && latest.conclusion) {
+        const icon = latest.conclusion === 'success' ? '✅' : '❌';
+        $('#status').textContent = `${icon} 完了: ${latest.conclusion}`;
+        $('#btn-scrape').disabled = false;
+        setTimeout(() => { loadData(); }, 3000);
+        setTimeout(() => { $('#status').textContent = '毎朝7時に自動更新'; }, 10000);
+        return;
+      }
+    }
+
+    if (run) {
+      // Get job details for step-level progress
+      const jobRes = await fetch(run.jobs_url, { headers });
+      const jobData = await jobRes.json();
+      const job = jobData.jobs?.[0];
+
+      if (job) {
+        const steps = job.steps || [];
+        const completed = steps.filter(s => s.conclusion === 'success').length;
+        const total = steps.length || 1;
+        const current = steps.find(s => s.status === 'in_progress');
+        const elapsed = Math.round((Date.now() - new Date(run.created_at)) / 60000);
+
+        const stepNames = {
+          'Set up job': '準備中',
+          'Run actions/checkout@v4': 'チェックアウト',
+          'Set up Python': 'Python準備',
+          'Install dependencies': '依存関係インストール',
+          'Run scraper': 'スクレイピング実行中',
+          'Upload results': '結果アップロード',
+          'Notify new properties and delisted alerts': '通知送信',
+          'Merge likes into data and update dashboard': 'データ更新',
+          'Deploy to Cloudflare Pages': 'デプロイ中',
+        };
+
+        const stepLabel = current ? (stepNames[current.name] || current.name) : '待機中';
+        const pct = Math.round(completed / total * 100);
+        $('#status').textContent = `⏳ ${stepLabel} (${pct}% / ${elapsed}分経過)`;
+      } else {
+        const elapsed = Math.round((Date.now() - new Date(run.created_at)) / 60000);
+        $('#status').textContent = `⏳ 実行中... (${elapsed}分経過)`;
+      }
+
+      setTimeout(() => pollScrapeProgress(token), 15000);
+    } else {
+      $('#status').textContent = '⏳ キュー待ち...';
+      setTimeout(() => pollScrapeProgress(token), 10000);
+    }
+  } catch {
+    $('#status').textContent = '進捗取得エラー';
+    setTimeout(() => pollScrapeProgress(token), 30000);
+  }
+}
 
 // GitHub Sync
 $('#btn-sync').addEventListener('click', async () => {
