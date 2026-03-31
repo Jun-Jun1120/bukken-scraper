@@ -101,7 +101,15 @@ async def _run_pipeline_async(
     if before != len(properties):
         logger.info("Filtered out %d female-only properties", before - len(properties))
 
-    # 1.6. Filter by building structure (RC/SRC only)
+    # 1.6. Filter by total rent (管理費込み13万以下)
+    _max_total = 130000
+    _before = len(properties)
+    properties = [p for p in properties if p.total_rent <= _max_total or p.total_rent == 0]
+    _filtered = _before - len(properties)
+    if _filtered:
+        logger.info("Filtered out %d properties over %d yen total rent", _filtered, _max_total)
+
+    # 1.7. Filter by building structure (RC/SRC only)
     if config.search.structures:
         _allowed = {s.upper() for s in config.search.structures}
         _before = len(properties)
