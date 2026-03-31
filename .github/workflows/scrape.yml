@@ -57,3 +57,9 @@
             git add docs/data.json || true
             git diff --cached --quiet || git commit -m "chore: update property data $(date +%Y-%m-%d)"
             git push
+
+        - name: Deploy to Cloudflare Pages
+          uses: cloudflare/wrangler-action@v3
+          with:
+            apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+            command: pages deploy docs --project-name bukken-dashboard
