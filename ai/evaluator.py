@@ -146,7 +146,8 @@ def _build_prompt(prop: Property, criteria: SearchCriteria) -> str:
 - エリア: 渋谷DTビルから3km圏内（絶対条件）
 - 家賃: 手取り30万+補助2万。管理費込み11〜12万がベスト、12.5万以下がスイートスポット、13万が上限
 - 間取り: {', '.join(criteria.layouts)}（ワンルーム・1K中心）
-- 構造: {', '.join(criteria.structures)}
+- 構造: RC/SRCが最高評価（防音性能が高い）。鉄骨もOK。軽量鉄骨は減点。木造は除外済み
+- **防音性能を重視**: RC > SRC > 重量鉄骨 > 鉄骨 > 軽量鉄骨。防音・遮音に関する設備があれば加点
 - 築年数: {criteria.max_age_years}年以内（築浅志向。新築〜築3年は高評価）
 - 駅徒歩: {criteria.max_walk_minutes}分以内
 - 面積: 20〜25m2がベスト（広さ重視。面積広い順で検索するタイプ）

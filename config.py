@@ -17,7 +17,7 @@ class SearchCriteria:
     rent_min: int = 50000  # 5万円
     rent_max: int = 150000  # 検索上限15万（管理費込み13万以下はパイプラインでフィルター）
     layouts: tuple[str, ...] = ("1R", "1K", "1DK", "1LDK", "2K")
-    structures: tuple[str, ...] = ("RC", "SRC")  # 鉄筋コンクリート, 鉄骨鉄筋コンクリート
+    structures: tuple[str, ...] = ("RC", "SRC", "鉄骨")  # 木造以外OK。防音性能でAIがスコア調整
     max_age_years: int = 15  # 築15年以内
     max_walk_minutes: int = 10  # 駅徒歩10分以内
 

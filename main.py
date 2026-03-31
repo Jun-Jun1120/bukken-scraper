@@ -112,24 +112,20 @@ async def _run_pipeline_async(
     _sweet = len([p for p in properties if 0 < p.total_rent <= 125000])
     logger.info("Sweet spot (12.5万以下): %d / %d properties", _sweet, len(properties))
 
-    # 1.7. Filter by building structure (RC/SRC only)
-    if config.search.structures:
-        _allowed = {s.upper() for s in config.search.structures}
-        _before = len(properties)
+    # 1.7. Filter by building structure (木造を除外)
+    _before = len(properties)
 
-        def _is_allowed_structure(p):
-            bt = (p.building_type or "").upper()
-            if not bt:
-                return True  # 構造不明は残す
-            return any(s in bt for s in _allowed)
+    def _is_allowed_structure(p):
+        bt = (p.building_type or "").upper()
+        if not bt:
+            return True  # 構造不明は残す
+        # 木造のみ除外 (RC, SRC, 鉄骨, 鉄筋 etc. は全てOK)
+        return "木造" not in bt and "ウッド" not in bt
 
-        properties = [p for p in properties if _is_allowed_structure(p)]
-        _filtered = _before - len(properties)
-        if _filtered:
-            logger.info(
-                "Filtered out %d non-%s properties",
-                _filtered, "/".join(_allowed),
-            )
+    properties = [p for p in properties if _is_allowed_structure(p)]
+    _filtered = _before - len(properties)
+    if _filtered:
+        logger.info("Filtered out %d wooden structure properties", _filtered)
 
     # 1.7. Filter by building age
     if config.search.max_age_years > 0:
