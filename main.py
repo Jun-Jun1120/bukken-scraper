@@ -119,10 +119,12 @@ async def _run_pipeline_async(
         bt = p.building_type or ""
         if not bt:
             return True  # 構造不明は残す
-        # 木造・軽量鉄骨を除外
+        # 木造・軽量鉄骨・ALCを除外
         if "木造" in bt or "ウッド" in bt:
             return False
         if "軽量鉄骨" in bt:
+            return False
+        if "ALC" in bt.upper():
             return False
         return True
 
