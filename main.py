@@ -258,6 +258,14 @@ async def _evaluate_only_async(config: AppConfig, use_sheets: bool = False) -> N
 
     logger.info("=== Evaluate-only mode ===")
     existing = load_all()
+    # Fallback: try docs/data.json (committed by CI)
+    if not existing:
+        import json
+        from pathlib import Path
+        docs_data = Path("docs/data.json")
+        if docs_data.exists():
+            existing = json.loads(docs_data.read_text(encoding="utf-8"))
+            logger.info("Loaded %d properties from docs/data.json", len(existing))
     if not existing:
         logger.info("No existing data. Run scraping first.")
         return
