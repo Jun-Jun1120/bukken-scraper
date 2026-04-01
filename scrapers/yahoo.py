@@ -401,16 +401,33 @@ async def scrape_yahoo(config: AppConfig) -> list[Property]:
             len(unique), len(properties),
         )
 
-        # Phase 2: Visit each detail page
-        enriched: list[Property] = []
-        for i, prop in enumerate(unique):
-            if (i + 1) % 20 == 0:
-                logger.info("Yahoo: enriching %d/%d...", i + 1, len(unique))
-            result = await _enrich_from_detail(
-                page, prop, config.scraping.request_delay_sec,
-            )
-            if result is not None:
-                enriched.append(result)
+        # Phase 2: Visit detail pages in parallel (multiple tabs)
+        concurrency = 5
+        semaphore = asyncio.Semaphore(concurrency)
+        enriched_count = 0
+
+        async def _enrich_one(idx: int, prop: Property) -> Property | None:
+            nonlocal enriched_count
+            async with semaphore:
+                tab = await context.new_page()
+                try:
+                    result = await _enrich_from_detail(
+                        tab, prop, config.scraping.request_delay_sec,
+                    )
+                    enriched_count += 1
+                    if enriched_count % 20 == 0:
+                        logger.info(
+                            "Yahoo: enriched %d/%d...",
+                            enriched_count, len(unique),
+                        )
+                    return result
+                finally:
+                    await tab.close()
+
+        results = await asyncio.gather(
+            *(_enrich_one(i, p) for i, p in enumerate(unique)),
+        )
+        enriched = [r for r in results if r is not None]
 
         await browser.close()
 

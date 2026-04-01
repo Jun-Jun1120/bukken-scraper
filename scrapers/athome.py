@@ -158,17 +158,28 @@ async def _extract_rooms_from_building(building: Locator) -> list[Property]:
         if await info_hints.count() >= 2:
             station_access = await _safe_text(info_hints.nth(1).locator("dd"))
 
-    # Building type and age
-    type_age = await _safe_text(
+    # Building type and age (e.g. "RC 3階建 2019年3月" or "鉄筋コンクリート / 築5年")
+    type_age_raw = await _safe_text(
         building.locator(
             "dl.p-property__information-hint:has(i[class*='home']) dd, "
             "dl:has(dt:has-text('築')) dd"
         )
     )
-    if not type_age:
+    if not type_age_raw:
         info_hints = building.locator("dl.p-property__information-hint")
         if await info_hints.count() >= 3:
-            type_age = await _safe_text(info_hints.nth(2).locator("dd"))
+            type_age_raw = await _safe_text(info_hints.nth(2).locator("dd"))
+
+    # Parse building_type and year_built from combined string
+    import re as _re
+    building_type_from_list = ""
+    type_age = type_age_raw
+    bt_match = _re.search(
+        r"(SRC|RC|鉄骨鉄筋コンクリート|鉄筋コンクリート|重量鉄骨|軽量鉄骨|鉄骨|ALC|木造)",
+        type_age_raw,
+    )
+    if bt_match:
+        building_type_from_list = bt_match.group(1)
 
     # Room detail boxes
     rooms = building.locator(
@@ -260,6 +271,7 @@ async def _extract_rooms_from_building(building: Locator) -> list[Property]:
                 layout=layout,
                 area_sqm=area,
                 floor=floor,
+                building_type=building_type_from_list,
                 year_built=type_age,
                 station_access=station_access,
                 image_url=image_url,
@@ -506,45 +518,17 @@ async def scrape_athome(config: AppConfig) -> list[Property]:
                 unique.append(p)
 
         logger.info(
-            "athome: %d unique from %d total, enriching details...",
+            "athome: %d unique from %d total (skipping detail enrichment for speed)",
             len(unique), len(properties),
         )
 
-        # Phase 2: Visit detail pages in parallel (multiple tabs)
-        concurrency = 5
-        semaphore = asyncio.Semaphore(concurrency)
-        enriched_count = 0
-
-        async def _enrich_one(idx: int, prop: Property) -> Property | None:
-            nonlocal enriched_count
-            async with semaphore:
-                tab = await context.new_page()
-                try:
-                    result = await _enrich_from_detail(
-                        tab, prop, config.scraping.request_delay_sec,
-                    )
-                    enriched_count += 1
-                    if enriched_count % 20 == 0:
-                        logger.info(
-                            "athome: enriched %d/%d...",
-                            enriched_count, len(unique),
-                        )
-                    return result
-                finally:
-                    await tab.close()
-
-        results = await asyncio.gather(
-            *(_enrich_one(i, p) for i, p in enumerate(unique)),
-        )
-        enriched = [r for r in results if r is not None]
-
-        # Filter out female-only from name/features (quick check)
+        # Filter out female-only from name (quick check)
         filtered = [
-            p for p in enriched
+            p for p in unique
             if not any(kw in p.name for kw in FEMALE_KEYWORDS)
         ]
-        if len(filtered) < len(enriched):
-            logger.info("athome: filtered %d female-only from names", len(enriched) - len(filtered))
+        if len(filtered) < len(unique):
+            logger.info("athome: filtered %d female-only from names", len(unique) - len(filtered))
 
         await browser.close()
 
