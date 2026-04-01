@@ -91,8 +91,6 @@
             python notify.py output/data.json docs/likes.json || true
 
         - name: Deploy to Cloudflare Pages
-          uses: cloudflare/wrangler-action@v3
-          with:
-            apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-            wranglerVersion: '3.99.0'
-            command: pages deploy docs --project-name bukken-dashboard --commit-dirty=true
+          run: |
+            npm install -g wrangler@3
+            CLOUDFLARE_API_TOKEN=${{ secrets.CLOUDFLARE_API_TOKEN }} wrangler pages deploy docs --project-name bukken-dashboard --commit-dirty=true
