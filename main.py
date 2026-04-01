@@ -251,6 +251,60 @@ async def _run_pipeline_async(
             )
 
 
+async def _evaluate_only_async(config: AppConfig, use_sheets: bool = False) -> None:
+    """Re-evaluate existing properties without scraping."""
+    from output.store import load_all, save_results as _save
+    from scrapers import Property
+
+    logger.info("=== Evaluate-only mode ===")
+    existing = load_all()
+    if not existing:
+        logger.info("No existing data. Run scraping first.")
+        return
+
+    # Convert dicts back to Property objects
+    properties = []
+    for p in existing:
+        properties.append(Property(
+            source=p.get("source", ""),
+            url=p.get("url", ""),
+            name=p.get("name", ""),
+            address=p.get("address", ""),
+            rent=p.get("rent", 0),
+            management_fee=p.get("management_fee", 0),
+            deposit=p.get("deposit", 0),
+            key_money=p.get("key_money", 0),
+            layout=p.get("layout", ""),
+            area_sqm=p.get("area_sqm", 0),
+            floor=p.get("floor", ""),
+            building_type=p.get("building_type", ""),
+            year_built=p.get("year_built", ""),
+            direction=p.get("direction", ""),
+            station_access=p.get("station_access", ""),
+            features=tuple(p.get("features", ())),
+            image_url=p.get("image_url", ""),
+        ))
+
+    logger.info("Loaded %d existing properties, running AI evaluation...", len(properties))
+    evaluated = await evaluate_properties(properties, config)
+
+    # Output
+    csv_path = write_to_csv(evaluated)
+    logger.info("CSV saved: %s", csv_path)
+    html_path = generate_html_report(evaluated)
+    logger.info("HTML report: %s", html_path)
+    _save(evaluated)
+
+    if use_sheets:
+        try:
+            from output.sheets import write_to_sheets
+            write_to_sheets(evaluated, config.sheets)
+        except Exception:
+            logger.exception("Failed to write to Google Sheets")
+
+    logger.info("=== Evaluate-only complete: %d properties ===", len(evaluated))
+
+
 def run_pipeline(config: AppConfig, **kwargs) -> None:
     """Execute the full pipeline (sync wrapper)."""
     asyncio.run(_run_pipeline_async(config, **kwargs))
@@ -263,6 +317,7 @@ def main() -> None:
     parser.add_argument("--suumo-only", action="store_true", help="SUUMOのみスクレイピング")
     parser.add_argument("--visible", action="store_true", help="ブラウザを表示 (CAPTCHA対応)")
     parser.add_argument("--skip-ai", action="store_true", help="AI評価をスキップ")
+    parser.add_argument("--evaluate-only", action="store_true", help="スクレイピングせずAI評価のみ再実行")
     parser.add_argument("--sheets", action="store_true", help="Google Sheetsにも出力")
     parser.add_argument("--email", type=str, default="", help="Google Sheets共有先メールアドレス")
     parser.add_argument("--max-pages", type=int, default=20, help="サイトあたりの最大ページ数")
@@ -295,6 +350,8 @@ def main() -> None:
     if args.schedule:
         from scheduler import start_scheduler
         start_scheduler(config)
+    elif args.evaluate_only:
+        asyncio.run(_evaluate_only_async(config, use_sheets=args.sheets))
     else:
         run_pipeline(
             config,

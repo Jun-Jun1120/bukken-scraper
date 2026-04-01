@@ -4,7 +4,12 @@
     schedule:
       # 毎日 AM 7:00 JST (UTC 22:00 前日)
       - cron: '0 22 * * *'
-    workflow_dispatch: # 手動実行も可能
+    workflow_dispatch:
+      inputs:
+        evaluate_only:
+          description: 'AI評価のみ (スクレイピングスキップ)'
+          type: boolean
+          default: false
 
   permissions:
     contents: write
@@ -48,7 +53,11 @@
             ATHOME_USER: ${{ secrets.ATHOME_USER }}
             ATHOME_PASS: ${{ secrets.ATHOME_PASS }}
           run: |
-            python main.py --max-pages 3 --skip-scrapers "HOME'S"
+            if [ "${{ inputs.evaluate_only }}" = "true" ]; then
+              python main.py --evaluate-only
+            else
+              python main.py --max-pages 3 --skip-scrapers "HOME'S"
+            fi
 
         - name: Upload results
           if: always()
