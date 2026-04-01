@@ -101,8 +101,8 @@ async def _run_pipeline_async(
     if before != len(properties):
         logger.info("Filtered out %d female-only properties", before - len(properties))
 
-    # 1.6. Filter by total rent (管理費込み13万以下まで許容)
-    _max_total = 130000
+    # 1.6. Filter by total rent (管理費込み15万以下まで許容)
+    _max_total = 150000
     _before = len(properties)
     properties = [p for p in properties if p.total_rent <= _max_total or p.total_rent == 0]
     _filtered = _before - len(properties)
