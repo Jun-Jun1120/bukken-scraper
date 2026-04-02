@@ -1234,6 +1234,7 @@ function showDetail(idx) {
       <div class="detail-score" style="color:${scoreColor(p.score)}">${p.score}<span class="detail-score-max">/100</span></div>
       <div>${recBadge(p.recommendation)}<br><span style="font-size:11px;color:var(--muted)">AI評価</span></div>
     </div>
+    <div class="detail-link"><a href="${esc(p.url)}" target="_blank">物件サイトで詳細を見る &rarr;</a></div>
     <div class="detail-grid">
       <div class="detail-item"><span class="d-label">家賃</span><span class="d-value">${rentText(p.rent)}</span></div>
       <div class="detail-item"><span class="d-label">管理費</span><span class="d-value">${p.management_fee ? p.management_fee.toLocaleString() + '円' : '-'}</span></div>
@@ -1291,7 +1292,6 @@ function showDetail(idx) {
       <textarea class="notes-textarea" id="note-textarea" placeholder="メモを入力..." oninput="saveNote()">${esc(note.text || '')}</textarea>
     </div>
 
-    <div class="detail-link"><a href="${esc(p.url)}" target="_blank">物件サイトで詳細を見る</a></div>
   `;
 
   // Store cost data for recalculation
