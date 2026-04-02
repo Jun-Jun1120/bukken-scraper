@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import urllib.request
+import urllib.error
 import urllib.parse
 from pathlib import Path
 
@@ -38,32 +39,58 @@ def _send_line(message: str) -> bool:
         return False
 
 
-def _send_discord(message: str) -> bool:
-    """Send notification via Discord Webhook.
-
-    Discord content limit is 2000 chars, so long messages are split.
-    """
+def _discord_post(payload: dict) -> bool:
+    """Post JSON payload to Discord webhook."""
     url = os.environ.get("DISCORD_WEBHOOK_URL", "")
     if not url:
         return False
-    try:
-        chunks = _split_message(message, limit=2000)
-        for chunk in chunks:
-            data = json.dumps({"content": chunk}).encode()
-            req = urllib.request.Request(
-                url,
-                data=data,
-                headers={
-                    "Content-Type": "application/json",
-                    "User-Agent": "bukken-scraper/1.0",
-                },
-            )
-            urllib.request.urlopen(req)
-        logger.info("Discord notification sent (%d message(s))", len(chunks))
-        return True
-    except Exception:
-        logger.exception("Discord notification failed")
-        return False
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "bukken-scraper/1.0",
+        },
+    )
+    urllib.request.urlopen(req)
+    return True
+
+
+def _score_color(score: int) -> int:
+    if score >= 90:
+        return 0xFF4500
+    if score >= 85:
+        return 0xFF8C00
+    if score >= 80:
+        return 0xFFD700
+    return 0x32CD32
+
+
+def _score_emoji(score: int) -> str:
+    if score >= 90:
+        return "\U0001f525"
+    if score >= 85:
+        return "\u2b50"
+    if score >= 80:
+        return "\U0001f44d"
+    return "\u2705"
+
+
+def send(message: str) -> None:
+    """Send notification via available channel (plain text)."""
+    if _send_line(message):
+        return
+    url = os.environ.get("DISCORD_WEBHOOK_URL", "")
+    if url:
+        try:
+            for chunk in _split_message(message, limit=2000):
+                _discord_post({"content": chunk})
+            logger.info("Discord notification sent")
+        except Exception:
+            logger.exception("Discord notification failed")
+    else:
+        logger.info("Notification (no channel configured): %s", message)
 
 
 def _split_message(message: str, limit: int = 2000) -> list[str]:
@@ -86,20 +113,14 @@ def _split_message(message: str, limit: int = 2000) -> list[str]:
     return chunks
 
 
-def send(message: str) -> None:
-    """Send notification via available channel."""
-    if not _send_line(message):
-        if not _send_discord(message):
-            logger.info("Notification (no channel configured): %s", message)
-
-
 def notify_new_properties(data_path: str, score_threshold: int = 75) -> None:
-    """Notify about new high-score properties."""
+    """Notify about new high-score properties using Discord embeds."""
     path = Path(data_path)
     if not path.exists():
         return
 
     data = json.loads(path.read_text(encoding="utf-8"))
+    total = len(data)
     top = [p for p in data if p.get("score", 0) >= score_threshold]
 
     if not top:
@@ -108,17 +129,138 @@ def notify_new_properties(data_path: str, score_threshold: int = 75) -> None:
 
     top.sort(key=lambda p: p.get("score", 0), reverse=True)
 
-    lines = [f"\n🏠 本日のおすすめ物件 ({len(top)}件)"]
-    for p in top[:10]:
+    # Group by building name, pick best room per building
+    grouped: dict[str, list] = {}
+    for p in top:
+        # Normalize name: remove "の賃貸物件情報" suffix for grouping
+        raw_name = p.get("name", "?") or "?"
+        key = raw_name.replace("の賃貸物件情報", "").strip()
+        grouped.setdefault(key, []).append(p)
+
+    # Pick top-scored room per building, keep extra rooms as sub-info
+    buildings = []
+    for key, rooms in grouped.items():
+        rooms.sort(key=lambda r: r.get("score", 0), reverse=True)
+        buildings.append({"best": rooms[0], "rooms": rooms, "key": key})
+    buildings.sort(key=lambda b: b["best"].get("score", 0), reverse=True)
+
+    display = buildings[:9]  # 9 + summary = 10 embeds (Discord max)
+
+    url = os.environ.get("DISCORD_WEBHOOK_URL", "")
+    if not url:
+        # Fallback to plain text
+        _notify_plain([b["best"] for b in display], total)
+        return
+
+    # Build embeds: summary + top 10 properties (compact)
+    sweet = len([p for p in data if 0 < p.get("total_rent", 0) <= 125000])
+    summary = {
+        "title": "\U0001f3e0 \u672c\u65e5\u306e\u304a\u3059\u3059\u3081\u7269\u4ef6 Top 10",
+        "description": (
+            f"\u7dcf\u7269\u4ef6\u6570: **{total}**\u4ef6 | "
+            f"75\u70b9\u4ee5\u4e0a: **{len(top)}**\u4ef6 | "
+            f"12.5\u4e07\u4ee5\u4e0b: **{sweet}**\u4ef6\n"
+            f"[\U0001f4ca \u30c0\u30c3\u30b7\u30e5\u30dc\u30fc\u30c9\u3092\u958b\u304f]({DASHBOARD_URL})"
+        ),
+        "color": 0x5865F2,
+    }
+
+    embeds = [summary]
+    for bldg in display:
+        p = bldg["best"]
+        rooms = bldg["rooms"]
+        score = p.get("score", 0)
+        rent = p.get("total_rent", 0)
+        name = bldg["key"][:40]
+        layout = p.get("layout", "")
+        area = p.get("area_sqm", 0)
+        station = (p.get("station_access", "") or "")[:60]
+        bt = p.get("building_type", "")
+        yr = p.get("year_built", "")
+        prop_url = p.get("url", "")
+
+        # Compact description with key info
+        info_parts = []
+        if rent:
+            info_parts.append(f"\U0001f4b0 **{rent // 10000}\u4e07\u5186**/\u6708")
+        detail_parts = []
+        if layout:
+            detail_parts.append(layout)
+        if area:
+            detail_parts.append(f"{area}m\u00b2")
+        if bt:
+            detail_parts.append(bt)
+        if yr:
+            detail_parts.append(yr)
+        if detail_parts:
+            info_parts.append("\U0001f4d0 " + " / ".join(detail_parts))
+        if station:
+            info_parts.append(f"\U0001f689 {station}")
+
+        # Show other available rooms in same building
+        if len(rooms) > 1:
+            room_lines = []
+            for r in rooms[1:4]:  # Show up to 3 more rooms
+                r_rent = r.get("total_rent", 0)
+                r_floor = r.get("floor", "")
+                r_area = r.get("area_sqm", 0)
+                parts = []
+                if r_floor:
+                    parts.append(r_floor)
+                if r_area:
+                    parts.append(f"{r_area}m\u00b2")
+                if r_rent:
+                    parts.append(f"{r_rent // 10000}\u4e07\u5186")
+                room_lines.append(" / ".join(parts))
+            extra = len(rooms) - 1
+            info_parts.append(
+                f"\U0001f3e2 \u4ed6{extra}\u90e8\u5c4b: " + " | ".join(room_lines)
+            )
+
+        embed: dict = {
+            "title": f"{_score_emoji(score)} {score}\u70b9 {name}",
+            "description": "\n".join(info_parts),
+            "color": _score_color(score),
+        }
+        if prop_url:
+            embed["url"] = prop_url
+
+        # Thumbnail for top 3
+        image_url = p.get("image_url", "")
+        if image_url and len(embeds) <= 3:
+            if image_url.startswith("//"):
+                image_url = "https:" + image_url
+            if image_url.startswith("http"):
+                embed["thumbnail"] = {"url": image_url}
+
+        embeds.append(embed)
+
+    # Send: first batch (max 10), then overflow
+    try:
+        _discord_post({"embeds": embeds[:10]})
+        if len(embeds) > 10:
+            _discord_post({"embeds": embeds[10:]})
+        logger.info("Discord notification sent (%d embeds)", len(embeds))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:300]
+        logger.error("Discord embed failed: %d %s", e.code, body)
+        _notify_plain(display, total)
+    except Exception:
+        logger.exception("Discord notification failed")
+        _notify_plain([b["best"] for b in display], total)
+
+
+def _notify_plain(display: list, total: int) -> None:
+    """Plain text fallback notification."""
+    lines = [f"\U0001f3e0 \u672c\u65e5\u306e\u304a\u3059\u3059\u3081\u7269\u4ef6 ({total}\u4ef6\u4e2d)"]
+    for p in display:
         rent = p.get("total_rent", 0)
         lines.append(
-            f"\n⭐ {p.get('score', 0)}点 {p.get('name', '?')}"
-            f"\n  {rent // 10000}万円/月 {p.get('layout', '')} {p.get('area_sqm', '')}㎡"
-            f"\n  {p.get('station_access', '')}"
+            f"\n{_score_emoji(p.get('score', 0))} {p.get('score', 0)}\u70b9 {p.get('name', '?')}"
+            f"\n  {rent // 10000}\u4e07\u5186/\u6708 {p.get('layout', '')} {p.get('area_sqm', '')}m\u00b2"
             f"\n  {p.get('url', '')}"
         )
-
-    lines.append(f"\n📊 ダッシュボード: {DASHBOARD_URL}")
+    lines.append(f"\n\U0001f4ca {DASHBOARD_URL}")
     send("\n".join(lines))
 
 
@@ -141,12 +283,25 @@ def notify_delisted(data_path: str, likes_path: str) -> None:
     if not delisted:
         return
 
-    lines = [f"\n⚠️ いいねした物件が掲載終了 ({len(delisted)}件)"]
-    for url in list(delisted)[:5]:
-        lines.append(f"  {url}")
-    lines.append(f"\n早めの問い合わせをおすすめします。")
+    url = os.environ.get("DISCORD_WEBHOOK_URL", "")
+    if url:
+        lines = [f"\U0001f517 {u}" for u in list(delisted)[:5]]
+        embed = {
+            "title": f"\u26a0\ufe0f \u3044\u3044\u306d\u7269\u4ef6\u304c\u63b2\u8f09\u7d42\u4e86 ({len(delisted)}\u4ef6)",
+            "description": "\n".join(lines) + "\n\n\u65e9\u3081\u306e\u554f\u3044\u5408\u308f\u305b\u3092\u304a\u3059\u3059\u3081\u3057\u307e\u3059\u3002",
+            "color": 0xFF0000,
+        }
+        try:
+            _discord_post({"embeds": [embed]})
+            return
+        except Exception:
+            pass
 
-    send("\n".join(lines))
+    text_lines = [f"\u26a0\ufe0f \u3044\u3044\u306d\u7269\u4ef6\u304c\u63b2\u8f09\u7d42\u4e86 ({len(delisted)}\u4ef6)"]
+    for u in list(delisted)[:5]:
+        text_lines.append(f"  {u}")
+    text_lines.append("\u65e9\u3081\u306e\u554f\u3044\u5408\u308f\u305b\u3092\u304a\u3059\u3059\u3081\u3057\u307e\u3059\u3002")
+    send("\n".join(text_lines))
 
 
 if __name__ == "__main__":
