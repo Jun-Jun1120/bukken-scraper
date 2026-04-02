@@ -348,14 +348,14 @@ async def scrape_door(config: AppConfig) -> list[Property]:
 
                     # Try multiple selectors for building cards
                     buildings = page.locator(
-                        "div.building-card, div.building-box, "
-                        "div[class*='building'], section[class*='building']"
+                        "div[class*='building']:has(table)"
                     )
                     count = await buildings.count()
 
-                    # Fallback: look for any container that has a room table
+                    # Fallback: original selectors
                     if count == 0:
                         buildings = page.locator(
+                            "div.building-card, div.building-box, "
                             ":has(> table):has(> h3 a[href*='/buildings/']), "
                             ":has(> table):has(> h2 a[href*='/buildings/'])"
                         )
