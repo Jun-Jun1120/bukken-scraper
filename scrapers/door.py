@@ -402,11 +402,21 @@ async def scrape_door(config: AppConfig) -> list[Property]:
                 unique.append(p)
 
         logger.info(
-            "DOOR: %d unique from %d total, enriching details...",
+            "DOOR: %d unique from %d total",
             len(unique), len(properties),
         )
 
+        # Skip detail enrichment when too many results (too slow for CI)
+        if len(unique) > 200:
+            logger.info(
+                "DOOR: skipping detail enrichment (%d items too many)",
+                len(unique),
+            )
+            await browser.close()
+            return unique
+
         # Phase 2: Visit each detail page
+        logger.info("DOOR: enriching %d details...", len(unique))
         enriched: list[Property] = []
         for i, prop in enumerate(unique):
             if (i + 1) % 20 == 0:
