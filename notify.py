@@ -39,26 +39,51 @@ def _send_line(message: str) -> bool:
 
 
 def _send_discord(message: str) -> bool:
-    """Send notification via Discord Webhook."""
+    """Send notification via Discord Webhook.
+
+    Discord content limit is 2000 chars, so long messages are split.
+    """
     url = os.environ.get("DISCORD_WEBHOOK_URL", "")
     if not url:
         return False
     try:
-        data = json.dumps({"content": message}).encode()
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": "bukken-scraper/1.0",
-            },
-        )
-        urllib.request.urlopen(req)
-        logger.info("Discord notification sent")
+        chunks = _split_message(message, limit=2000)
+        for chunk in chunks:
+            data = json.dumps({"content": chunk}).encode()
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "bukken-scraper/1.0",
+                },
+            )
+            urllib.request.urlopen(req)
+        logger.info("Discord notification sent (%d message(s))", len(chunks))
         return True
     except Exception:
         logger.exception("Discord notification failed")
         return False
+
+
+def _split_message(message: str, limit: int = 2000) -> list[str]:
+    """Split a message into chunks that fit within the character limit."""
+    if len(message) <= limit:
+        return [message]
+    chunks = []
+    lines = message.split("\n")
+    current = ""
+    for line in lines:
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > limit:
+            if current:
+                chunks.append(current)
+            current = line[:limit]
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 def send(message: str) -> None:
