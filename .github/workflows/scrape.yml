@@ -56,7 +56,7 @@
             if [ "${{ inputs.evaluate_only }}" = "true" ]; then
               python main.py --evaluate-only
             else
-              python main.py --max-pages 3 --skip-scrapers "HOME'S"
+              python main.py --max-pages 5
             fi
 
         - name: Upload results
