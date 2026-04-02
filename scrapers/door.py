@@ -16,14 +16,27 @@ from scrapers import Property
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://door.ac/tokyo/"
+BASE_URL = "https://door.ac"
 AREA_CODES = ["city-13113", "city-13110", "city-13104", "city-13103"]
+
+# DOOR now uses path-based layout filtering
+LAYOUT_PATH_MAP = {
+    "1R": "layout11",
+    "1K": "layout12",
+    "1DK": "layout13",
+    "1LDK": "layout15",
+    "2K": "layout22",
+}
 
 FEMALE_KEYWORDS = ("女性限定", "女性専用", "女性のみ", "レディース")
 
 
-def _build_search_url(area_slug: str, criteria: SearchCriteria) -> str:
-    """Build DOOR search URL from criteria."""
+def _build_search_urls(area_slug: str, criteria: SearchCriteria) -> list[str]:
+    """Build DOOR search URL templates for each layout.
+
+    DOOR requires path-based layout filtering (one layout per URL).
+    Returns a list of URL templates with {{}} placeholder for page number.
+    """
     rent_min = criteria.rent_min // 10000
     rent_max = criteria.rent_max // 10000
 
@@ -32,16 +45,24 @@ def _build_search_url(area_slug: str, criteria: SearchCriteria) -> str:
         f"rent_to={rent_max}",
     ]
 
-    layout_map = {"1R": "1r", "1K": "1k", "1DK": "1dk", "1LDK": "1ldk", "2K": "2k"}
-    for layout in criteria.layouts:
-        if code := layout_map.get(layout):
-            params.append(f"layout[]={code}")
-
     if criteria.max_age_years > 0:
         params.append(f"chikunen={criteria.max_age_years}")
 
     query = "&".join(params)
-    return f"{BASE_URL}{area_slug}/list?{query}&page={{}}"
+
+    urls = []
+    for layout in criteria.layouts:
+        layout_path = LAYOUT_PATH_MAP.get(layout)
+        if layout_path:
+            urls.append(
+                f"{BASE_URL}/specials/{layout_path}/tokyo/{area_slug}/list?{query}&page={{}}"
+            )
+
+    # Fallback: no layout filter if none matched
+    if not urls:
+        urls.append(f"{BASE_URL}/tokyo/{area_slug}/list?{query}&page={{}}")
+
+    return urls
 
 
 def _parse_rent(text: str) -> int:
@@ -306,71 +327,70 @@ async def scrape_door(config: AppConfig) -> list[Property]:
         )
         page = await context.new_page()
 
-        # Phase 1: Collect from list pages
+        # Phase 1: Collect from list pages (one URL per layout × area)
         for area_slug in AREA_CODES:
-            url_template = _build_search_url(area_slug, config.search)
+            url_templates = _build_search_urls(area_slug, config.search)
 
-            for page_num in range(1, config.scraping.max_pages_per_site + 1):
-                search_url = url_template.format(page_num)
-                logger.info("Scraping DOOR %s page %d", area_slug, page_num)
+            for url_template in url_templates:
+                for page_num in range(1, config.scraping.max_pages_per_site + 1):
+                    search_url = url_template.format(page_num)
+                    logger.info("Scraping DOOR %s page %d", area_slug, page_num)
 
-                try:
-                    await page.goto(
-                        search_url,
-                        timeout=config.scraping.timeout_sec * 1000,
-                    )
-                    await page.wait_for_load_state("domcontentloaded")
-                except Exception:
-                    logger.exception("Failed to load DOOR page")
-                    break
+                    try:
+                        await page.goto(
+                            search_url,
+                            timeout=config.scraping.timeout_sec * 1000,
+                        )
+                        await page.wait_for_load_state("domcontentloaded")
+                    except Exception:
+                        logger.exception("Failed to load DOOR page")
+                        break
 
-                # Try multiple selectors for building cards
-                buildings = page.locator(
-                    "div.building-card, div.building-box, "
-                    "div[class*='building'], section[class*='building']"
-                )
-                count = await buildings.count()
-
-                # Fallback: look for any container that has a room table
-                if count == 0:
+                    # Try multiple selectors for building cards
                     buildings = page.locator(
-                        ":has(> table):has(> h3 a[href*='/buildings/']), "
-                        ":has(> table):has(> h2 a[href*='/buildings/'])"
+                        "div.building-card, div.building-box, "
+                        "div[class*='building'], section[class*='building']"
                     )
                     count = await buildings.count()
 
-                # Last resort: find tables with property links directly
-                if count == 0:
-                    # Check if page loaded at all
-                    body = await page.text_content("body") or ""
-                    if "buildings" in body:
-                        logger.info(
-                            "DOOR: page has content but selectors don't match; "
-                            "trying broad extraction on page %d",
-                            page_num,
+                    # Fallback: look for any container that has a room table
+                    if count == 0:
+                        buildings = page.locator(
+                            ":has(> table):has(> h3 a[href*='/buildings/']), "
+                            ":has(> table):has(> h2 a[href*='/buildings/'])"
                         )
-                        # Extract properties from the whole page
-                        rooms = await _extract_from_whole_page(page)
-                        properties.extend(rooms)
-                        if not rooms:
+                        count = await buildings.count()
+
+                    # Last resort: find tables with property links directly
+                    if count == 0:
+                        body = await page.text_content("body") or ""
+                        if "buildings" in body:
+                            logger.info(
+                                "DOOR: page has content but selectors don't match; "
+                                "trying broad extraction on page %d",
+                                page_num,
+                            )
+                            rooms = await _extract_from_whole_page(page)
+                            properties.extend(rooms)
+                            if not rooms:
+                                break
+                        else:
+                            logger.info("No buildings on DOOR page %d", page_num)
                             break
                     else:
-                        logger.info("No buildings on DOOR page %d", page_num)
+                        for i in range(count):
+                            rooms = await _extract_from_building(buildings.nth(i))
+                            properties.extend(rooms)
+
+                    # Check pagination
+                    next_btn = page.locator(
+                        "a[rel='next'], a:has-text('次'), a:has-text('Next'), "
+                        "a[href*='page=']:last-of-type"
+                    )
+                    if await next_btn.count() == 0:
                         break
-                else:
-                    for i in range(count):
-                        rooms = await _extract_from_building(buildings.nth(i))
-                        properties.extend(rooms)
 
-                # Check pagination
-                next_btn = page.locator(
-                    "a[rel='next'], a:has-text('次'), a:has-text('Next'), "
-                    "a[href*='page=']:last-of-type"
-                )
-                if await next_btn.count() == 0:
-                    break
-
-                await asyncio.sleep(config.scraping.request_delay_sec)
+                    await asyncio.sleep(config.scraping.request_delay_sec)
 
         # Deduplicate by URL
         seen: set[str] = set()

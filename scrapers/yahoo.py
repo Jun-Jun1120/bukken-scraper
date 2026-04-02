@@ -221,8 +221,7 @@ async def _enrich_from_detail(page, prop: Property, delay: float) -> Property | 
         return prop
 
     try:
-        await page.goto(prop.url, timeout=15000)
-        await page.wait_for_load_state("domcontentloaded")
+        await page.goto(prop.url, timeout=15000, wait_until="domcontentloaded")
 
         body_text = await page.text_content("body") or ""
         if any(kw in body_text for kw in FEMALE_KEYWORDS):
@@ -358,9 +357,10 @@ async def scrape_yahoo(config: AppConfig) -> list[Property]:
 
             try:
                 await page.goto(
-                    search_url, timeout=config.scraping.timeout_sec * 1000,
+                    search_url,
+                    timeout=config.scraping.timeout_sec * 1000,
+                    wait_until="domcontentloaded",
                 )
-                await page.wait_for_load_state("domcontentloaded")
             except Exception:
                 logger.exception("Failed to load Yahoo page %d", page_num)
                 break
