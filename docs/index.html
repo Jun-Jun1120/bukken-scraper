@@ -382,6 +382,45 @@ body {
 .chart-bar-fill { height: 100%; border-radius: 6px; display: flex; align-items: center; padding: 0 10px; font-size: 12px; font-weight: 700; color: white; transition: width .3s ease; }
 .chart-bar-count { font-size: 12px; color: var(--muted); width: 40px; flex-shrink: 0; }
 
+/* Building group sub-rooms */
+.building-group-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 20px; border: 1.5px solid var(--border);
+  background: white; font-size: 13px; cursor: pointer; color: var(--muted); font-weight: 600;
+  transition: all .15s;
+}
+.building-group-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.building-group-toggle.active { background: var(--accent); color: white; border-color: var(--accent); }
+.sub-rooms-header {
+  display: flex; align-items: center; gap: 6px; padding: 10px 22px 4px;
+  font-size: 13px; font-weight: 600; color: var(--accent); cursor: pointer; user-select: none;
+  border-top: 1px solid var(--border); transition: background .15s;
+}
+.sub-rooms-header:hover { background: #f8f9fa; }
+.sub-rooms-header .arrow { font-size: 10px; transition: transform .2s; }
+.sub-rooms-header .arrow.open { transform: rotate(90deg); }
+.sub-rooms-list {
+  display: none; padding: 0 22px 12px; flex-direction: column; gap: 0;
+}
+.sub-rooms-list.open { display: flex; }
+.sub-room-row {
+  display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+  font-size: 13px; color: var(--text); border-bottom: 1px solid #f0f0f2;
+  transition: background .1s;
+}
+.sub-room-row:last-child { border-bottom: none; }
+.sub-room-row:hover { background: #f8f9fa; }
+.sub-room-detail { display: flex; gap: 10px; align-items: center; flex: 1; flex-wrap: wrap; }
+.sub-room-detail .sub-rent { font-weight: 700; color: var(--red); }
+.sub-room-detail .sub-score {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 50%; font-size: 12px; font-weight: 800; flex-shrink: 0;
+}
+.sub-room-link {
+  color: var(--accent); text-decoration: none; font-weight: 600; font-size: 12px; white-space: nowrap;
+}
+.sub-room-link:hover { text-decoration: underline; }
+
 /* Responsive */
 @media (max-width: 640px) {
   .card-top { flex-direction: column; }
@@ -508,6 +547,7 @@ body {
       <button class="sort-btn" data-key="walk_min" data-dir="asc">駅近</button>
       <button class="sort-btn" data-key="scraped_at" data-dir="desc">新着</button>
     </div>
+    <button class="building-group-toggle" id="btn-group" onclick="toggleBuildingGroup()" title="同じ建物の部屋をまとめて表示">&#127970; 建物でまとめる</button>
     <div class="per-page">
       <select id="per-page">
         <option value="10">10件</option><option value="20" selected>20件</option>
@@ -552,6 +592,7 @@ let compareSet = new Set(); // URLs of properties selected for comparison
 let mapInstance = null;
 let mapVisible = false;
 let chartVisible = false;
+let buildingGroupEnabled = localStorage.getItem('bukken-building-group') === 'true';
 
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
@@ -930,8 +971,133 @@ function applySort() {
   if (chartVisible) renderChart();
 }
 
+// Building grouping
+function toggleBuildingGroup() {
+  buildingGroupEnabled = !buildingGroupEnabled;
+  localStorage.setItem('bukken-building-group', buildingGroupEnabled);
+  $('#btn-group').classList.toggle('active', buildingGroupEnabled);
+  currentPage = 1;
+  renderCards();
+}
+
+function normalizeBuildingName(name) {
+  if (!name) return '';
+  return name.replace(/の賃貸物件情報$/g, '').trim();
+}
+
+function fixImageUrl(url) {
+  if (!url) return url;
+  if (url.startsWith('//')) return 'https:' + url;
+  return url;
+}
+
+function groupByBuilding(items) {
+  const groups = new Map();
+  for (let i = 0; i < items.length; i++) {
+    const p = items[i];
+    const key = normalizeBuildingName(p.name) || p.url;
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key).push({ prop: p, filteredIdx: i });
+  }
+  // For each group, pick the highest-scored room as representative
+  const result = [];
+  for (const [key, members] of groups) {
+    const sorted = [...members].sort((a, b) => b.prop.score - a.prop.score);
+    result.push({
+      main: sorted[0],
+      others: sorted.slice(1),
+      buildingName: key,
+    });
+  }
+  return result;
+}
+
+function toggleSubRooms(cardId) {
+  const list = document.getElementById('sub-' + cardId);
+  const arrow = document.getElementById('arrow-' + cardId);
+  if (!list) return;
+  list.classList.toggle('open');
+  if (arrow) arrow.classList.toggle('open');
+}
+
+function renderCardHtml(p, filteredIdx, subRoomsHtml) {
+  const rank = getStationRank(p.station_access);
+  const pro1 = (p.pros || [])[0] || '';
+  const con1 = (p.cons || [])[0] || '';
+  const comment = p.comment || '';
+  const hasNote = NotesStore.hasNote(p.url);
+  const isCompared = compareSet.has(p.url);
+  const imgUrl = fixImageUrl(p.image_url);
+  return `
+  <div class="card" onclick="showDetail(${filteredIdx})">
+    <div class="card-border" style="background:${scoreColor(p.score)}"></div>
+    <div class="card-body">
+      <div class="card-top">
+        ${imgUrl ? `<img class="card-img" src="${esc(imgUrl)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=card-img-placeholder>&#127968;</div>'">` : '<div class="card-img-placeholder">&#127968;</div>'}
+        <div class="card-info">
+          <div class="card-header">
+            <span class="source-badge" style="background:${sourceColor(p.source)}18;color:${sourceColor(p.source)}">${esc(p.source)}</span>
+            ${rankBadge(rank)}
+            <span class="card-name">${esc(p.name)}${hasNote ? '<span class="note-icon" title="メモあり">&#128221;</span>' : ''}</span>
+          </div>
+          <div class="card-address">${esc(p.address)}</div>
+          <div class="card-meta">
+            <span class="meta-chip rent">${rentText(p.total_rent)}/月</span>
+            <span class="meta-chip">${esc(p.layout || '-')}</span>
+            <span class="meta-chip">${p.area_sqm}m&sup2;</span>
+            <span class="meta-chip">${esc(p.year_built || '-')}</span>
+          </div>
+          <div class="card-station">${esc(p.station_access)}</div>
+        </div>
+        <div class="card-score-area">
+          <label class="compare-check" onclick="event.stopPropagation()">
+            <input type="checkbox" ${isCompared ? 'checked' : ''} onchange="toggleCompare('${esc(p.url)}', this.checked)">比較
+          </label>
+          <div class="reaction-row">
+            <button class="like-btn ${p.liked ? 'liked' : ''}" onclick="event.stopPropagation();toggleLike(${filteredIdx})" title="いいね">
+              ${p.liked ? '&#10084;' : '&#9825;'}
+            </button>
+            <button class="maybe-btn ${p.maybe ? 'maybed' : ''}" onclick="event.stopPropagation();toggleMaybe(${filteredIdx})" title="微妙">
+              ${p.maybe ? '&#9650;' : '&#9651;'}
+            </button>
+            <button class="dislike-btn ${p.disliked ? 'disliked' : ''}" onclick="event.stopPropagation();toggleDislike(${filteredIdx})" title="興味なし">
+              ${p.disliked ? '&#10005;' : '&#10005;'}
+            </button>
+          </div>
+          <div class="score-circle" style="background:${scoreBg(p.score)};color:${scoreColor(p.score)}">
+            ${p.score}<small>/100</small>
+          </div>
+          ${recBadge(p.recommendation)}
+        </div>
+      </div>
+      ${(pro1 || con1 || comment) ? `
+      <div class="card-comment">
+        ${(pro1 || con1) ? `<div class="card-pros-cons">
+          ${pro1 ? `<span class="pro">${esc(pro1)}</span>` : ''}
+          ${con1 ? `<span class="con">${esc(con1)}</span>` : ''}
+        </div>` : ''}
+        ${comment ? `<div class="card-comment-text">${esc(comment)}</div>` : ''}
+      </div>` : ''}
+    </div>
+    ${subRoomsHtml || ''}
+  </div>`;
+}
+
 // Cards
 function renderCards() {
+  // Update grouping button state on render
+  $('#btn-group').classList.toggle('active', buildingGroupEnabled);
+
+  if (buildingGroupEnabled) {
+    renderCardsGrouped();
+  } else {
+    renderCardsFlat();
+  }
+}
+
+function renderCardsFlat() {
   const perPage = parseInt($('#per-page').value);
   const totalPages = Math.ceil(filtered.length / perPage);
   if (currentPage > totalPages) currentPage = totalPages || 1;
@@ -948,68 +1114,70 @@ function renderCards() {
     return;
   }
 
-  $('#cards').innerHTML = page.map((p, i) => {
-    const rank = getStationRank(p.station_access);
-    const pro1 = (p.pros || [])[0] || '';
-    const con1 = (p.cons || [])[0] || '';
-    const comment = p.comment || '';
-    const hasNote = NotesStore.hasNote(p.url);
-    const isCompared = compareSet.has(p.url);
-    return `
-    <div class="card" onclick="showDetail(${start + i})">
-      <div class="card-border" style="background:${scoreColor(p.score)}"></div>
-      <div class="card-body">
-        <div class="card-top">
-          ${p.image_url ? `<img class="card-img" src="${esc(p.image_url)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=card-img-placeholder>&#127968;</div>'">` : '<div class="card-img-placeholder">&#127968;</div>'}
-          <div class="card-info">
-            <div class="card-header">
-              <span class="source-badge" style="background:${sourceColor(p.source)}18;color:${sourceColor(p.source)}">${esc(p.source)}</span>
-              ${rankBadge(rank)}
-              <span class="card-name">${esc(p.name)}${hasNote ? '<span class="note-icon" title="メモあり">&#128221;</span>' : ''}</span>
+  $('#cards').innerHTML = page.map((p, i) => renderCardHtml(p, start + i, '')).join('');
+  renderPagination(totalPages);
+}
+
+function renderCardsGrouped() {
+  const groups = groupByBuilding(filtered);
+  const perPage = parseInt($('#per-page').value);
+  const totalPages = Math.ceil(groups.length / perPage);
+  if (currentPage > totalPages) currentPage = totalPages || 1;
+  const start = (currentPage - 1) * perPage;
+  const pageGroups = groups.slice(start, start + perPage);
+
+  const totalBuildings = groups.length;
+  const totalRooms = filtered.length;
+  $('#result-count').textContent = totalBuildings
+    ? `${totalBuildings}棟 (${totalRooms}部屋) 中 ${start + 1}–${Math.min(start + perPage, totalBuildings)}棟`
+    : '0件';
+
+  if (!pageGroups.length) {
+    $('#cards').innerHTML = '<div class="empty"><div class="empty-icon">&#127968;</div><p>物件が見つかりません<br>フィルタを変更するか、スクレイピングしてください</p></div>';
+    $('#pagination').innerHTML = '';
+    return;
+  }
+
+  $('#cards').innerHTML = pageGroups.map((group, gi) => {
+    const p = group.main.prop;
+    const mainIdx = group.main.filteredIdx;
+    let subHtml = '';
+    if (group.others.length > 0) {
+      const cardId = 'g' + (start + gi);
+      const otherCount = group.others.length;
+      let rowsHtml = group.others.map(other => {
+        const op = other.prop;
+        const floor = op.floor || '-';
+        const area = op.area_sqm || '-';
+        const rent = rentText(op.total_rent);
+        return `
+          <div class="sub-room-row">
+            <div class="sub-room-detail">
+              <span class="sub-score" style="background:${scoreBg(op.score)};color:${scoreColor(op.score)}">${op.score}</span>
+              <span>${esc(floor)}</span>
+              <span>${area}m\u00B2</span>
+              <span class="sub-rent">${rent}/月</span>
+              <span>${esc(op.layout || '-')}</span>
             </div>
-            <div class="card-address">${esc(p.address)}</div>
-            <div class="card-meta">
-              <span class="meta-chip rent">${rentText(p.total_rent)}/月</span>
-              <span class="meta-chip">${esc(p.layout || '-')}</span>
-              <span class="meta-chip">${p.area_sqm}m&sup2;</span>
-              <span class="meta-chip">${esc(p.year_built || '-')}</span>
-            </div>
-            <div class="card-station">${esc(p.station_access)}</div>
-          </div>
-          <div class="card-score-area">
-            <label class="compare-check" onclick="event.stopPropagation()">
-              <input type="checkbox" ${isCompared ? 'checked' : ''} onchange="toggleCompare('${esc(p.url)}', this.checked)">比較
-            </label>
-            <div class="reaction-row">
-              <button class="like-btn ${p.liked ? 'liked' : ''}" onclick="event.stopPropagation();toggleLike(${start + i})" title="いいね">
-                ${p.liked ? '&#10084;' : '&#9825;'}
-              </button>
-              <button class="maybe-btn ${p.maybe ? 'maybed' : ''}" onclick="event.stopPropagation();toggleMaybe(${start + i})" title="微妙">
-                ${p.maybe ? '&#9650;' : '&#9651;'}
-              </button>
-              <button class="dislike-btn ${p.disliked ? 'disliked' : ''}" onclick="event.stopPropagation();toggleDislike(${start + i})" title="興味なし">
-                ${p.disliked ? '&#10005;' : '&#10005;'}
-              </button>
-            </div>
-            <div class="score-circle" style="background:${scoreBg(p.score)};color:${scoreColor(p.score)}">
-              ${p.score}<small>/100</small>
-            </div>
-            ${recBadge(p.recommendation)}
-          </div>
+            <a class="sub-room-link" href="#" onclick="event.stopPropagation();event.preventDefault();showDetail(${other.filteredIdx})">詳細 &rarr;</a>
+          </div>`;
+      }).join('');
+      subHtml = `
+        <div class="sub-rooms-header" onclick="event.stopPropagation();toggleSubRooms('${cardId}')">
+          <span class="arrow" id="arrow-${cardId}">&#9654;</span>
+          &#127970; 他${otherCount}部屋空きあり
         </div>
-        ${(pro1 || con1 || comment) ? `
-        <div class="card-comment">
-          ${(pro1 || con1) ? `<div class="card-pros-cons">
-            ${pro1 ? `<span class="pro">${esc(pro1)}</span>` : ''}
-            ${con1 ? `<span class="con">${esc(con1)}</span>` : ''}
-          </div>` : ''}
-          ${comment ? `<div class="card-comment-text">${esc(comment)}</div>` : ''}
-        </div>` : ''}
-      </div>
-    </div>`;
+        <div class="sub-rooms-list" id="sub-${cardId}">
+          ${rowsHtml}
+        </div>`;
+    }
+    return renderCardHtml(p, mainIdx, subHtml);
   }).join('');
 
-  // Pagination
+  renderPagination(totalPages);
+}
+
+function renderPagination(totalPages) {
   if (totalPages <= 1) { $('#pagination').innerHTML = ''; return; }
   let ph = `<button class="page-btn" onclick="goPage(${currentPage-1})" ${currentPage===1?'disabled':''}>&#8249;</button>`;
   for (let i = 1; i <= totalPages; i++) {
@@ -1046,7 +1214,7 @@ function showDetail(idx) {
 
   $('#detail').innerHTML = `
     <button class="detail-close" onclick="closeDetail()">&#10005;</button>
-    ${p.image_url ? `<img class="detail-img" src="${esc(p.image_url)}" alt="" onerror="this.style.display='none'">` : ''}
+    ${p.image_url ? `<img class="detail-img" src="${esc(fixImageUrl(p.image_url))}" alt="" onerror="this.style.display='none'">` : ''}
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
       <span class="source-badge" style="background:${sourceColor(p.source)}18;color:${sourceColor(p.source)}">${esc(p.source)}</span>
       ${rankBadge(rank)}
