@@ -1039,6 +1039,7 @@ function renderCardHtml(p, filteredIdx, subRoomsHtml) {
         <div class="card-info">
           <div class="card-header">
             <span class="source-badge" style="background:${sourceColor(p.source)}18;color:${sourceColor(p.source)}">${esc(p.source)}</span>
+            ${p.delisted ? '<span class="source-badge" style="background:#ff3b3018;color:#ff3b30">掲載終了</span>' : ''}
             ${rankBadge(rank)}
             <span class="card-name">${esc(p.name)}${hasNote ? '<span class="note-icon" title="メモあり">&#128221;</span>' : ''}</span>
           </div>
