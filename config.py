@@ -43,6 +43,7 @@ class ScrapingConfig:
     max_pages_per_site: int = 20
     request_delay_sec: float = 2.0  # polite crawling delay
     timeout_sec: int = 30
+    detail_enrichment_cap: int = 500  # skip detail page visits above this count
 
 
 @dataclass(frozen=True)

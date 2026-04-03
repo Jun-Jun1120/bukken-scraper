@@ -36,3 +36,8 @@ class Property:
         keywords = ("女性限定", "女性専用", "女性のみ", "レディース")
         text = f"{self.name} {' '.join(self.features)}"
         return any(k in text for k in keywords)
+
+
+def needs_ai_fallback(prop: Property) -> bool:
+    """Check if critical fields are missing and AI extraction should be attempted."""
+    return not prop.station_access or not prop.address

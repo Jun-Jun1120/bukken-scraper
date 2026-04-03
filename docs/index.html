@@ -716,17 +716,19 @@ function rentText(yen) {
 function extractStations(stationStr) {
   if (!stationStr) return [];
   const stations = [];
-  // Match patterns like "初台駅", "京王新線/初台駅 歩5分", "三軒茶屋/東急田園都市線"
-  const parts = stationStr.split(/[/／]/);
+  // Clean HTML tags
+  const clean = stationStr.replace(/<[^>]*>/g, '');
+  // Match patterns like "初台駅", "京王新線/初台駅 歩5分"
+  const parts = clean.split(/[/／]/);
   for (const part of parts) {
     const m = part.match(/「?([^\s「」]+?)」?駅/);
     if (m) {
       stations.push(m[1].replace(/^.*線\s*/, '').trim());
     }
   }
-  // Also try simpler pattern for "○○駅 歩Xm" format
+  // Fallback: "○○駅 歩Xm" format
   if (stations.length === 0) {
-    const m2 = stationStr.match(/([^\s/／]+?)駅/g);
+    const m2 = clean.match(/([^\s/／]+?)駅/g);
     if (m2) {
       for (const s of m2) {
         const name = s.replace('駅', '').replace(/.*線\s*/, '').replace(/[「」]/g, '').trim();
@@ -734,11 +736,21 @@ function extractStations(stationStr) {
       }
     }
   }
+  // Fallback: "駅名/路線名 徒歩X分" format (no 駅 character)
+  if (stations.length === 0) {
+    for (const part of parts) {
+      const trimmed = part.trim();
+      // If part contains 線, it's a line name, skip; otherwise first part is likely station name
+      if (!trimmed.includes('線') && !trimmed.includes('徒歩') && !trimmed.includes('歩') && trimmed.length > 0 && trimmed.length <= 10) {
+        if (!stations.includes(trimmed)) stations.push(trimmed);
+      }
+    }
+  }
   return stations;
 }
 
 let stationFilterOpen = false;
-let selectedStations = new Set(); // empty = all
+let excludedStations = new Set(); // stations unchecked by user
 
 function buildStationFilter() {
   const container = $('#station-filter');
@@ -772,7 +784,7 @@ function buildStationFilter() {
     if (rankGroups[rank].length === 0) continue;
     html += `<div class="st-section">${rankLabels[rank]}</div>`;
     for (const [name, count] of rankGroups[rank]) {
-      const checked = selectedStations.size === 0 || selectedStations.has(name) ? 'checked' : '';
+      const checked = !excludedStations.has(name) ? 'checked' : '';
       html += `<label class="st-check"><input type="checkbox" value="${esc(name)}" ${checked} onchange="onStationChange()"><span>${esc(name)}</span><span class="st-rank" style="color:${rankColors[rank]}">${rank}</span><span class="st-count">(${count})</span></label>`;
     }
   }
@@ -785,14 +797,12 @@ function getAllStationNames() {
   return [...$('#station-checks').querySelectorAll('input[type=checkbox]')].map(cb => cb.value);
 }
 function selectAllStations() {
-  selectedStations.clear();
+  excludedStations.clear();
   $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = true);
   onStationChange();
 }
 function clearAllStations() {
-  selectedStations.clear();
   $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = false);
-  // When all unchecked, treat as "select specific ones"
   onStationChange();
 }
 function selectRankStations(ranks) {
@@ -807,18 +817,19 @@ function selectRankStations(ranks) {
 function onStationChange() {
   const all = $('#station-checks').querySelectorAll('input[type=checkbox]');
   const checked = [...all].filter(cb => cb.checked);
-  if (checked.length === all.length || checked.length === 0) {
-    selectedStations.clear(); // all or none = no filter
+  const unchecked = [...all].filter(cb => !cb.checked);
+  if (checked.length === all.length || unchecked.length === all.length) {
+    excludedStations.clear(); // all checked or all unchecked = no filter
   } else {
-    selectedStations = new Set(checked.map(cb => cb.value));
+    excludedStations = new Set(unchecked.map(cb => cb.value));
   }
   updateStationCount();
   applyFilters();
 }
 function updateStationCount() {
   const el = $('#station-selected-count');
-  if (selectedStations.size > 0) {
-    el.textContent = `(${selectedStations.size}駅選択中)`;
+  if (excludedStations.size > 0) {
+    el.textContent = `(${excludedStations.size}駅除外中)`;
   } else {
     el.textContent = '';
   }
@@ -926,10 +937,10 @@ function applyFilters() {
       const text = [p.direction, p.name, ...(p.features || [])].join(' ');
       if (!text.includes(roomPos)) return false;
     }
-    // Station filter
-    if (selectedStations.size > 0) {
+    // Station filter — exclude unchecked stations
+    if (excludedStations.size > 0) {
       const propStations = extractStations(p.station_access);
-      if (!propStations.some(s => selectedStations.has(s))) return false;
+      if (propStations.length > 0 && propStations.every(s => excludedStations.has(s))) return false;
     }
     return true;
   });
@@ -1366,7 +1377,7 @@ $('#per-page').addEventListener('change', renderCards);
 $('#btn-reset').addEventListener('click', () => {
   ['#f-rent-min','#f-rent-max','#f-area-min','#f-area-max'].forEach(s => $(s).value = '');
   ['#f-layout','#f-score','#f-source','#f-age','#f-room-pos'].forEach(s => $(s).value = '');
-  selectedStations.clear();
+  excludedStations.clear();
   $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = true);
   updateStationCount();
   activePreset = null;
@@ -1398,7 +1409,7 @@ function getCurrentFilters() {
     areaMax: $('#f-area-max').value,
     age: $('#f-age').value,
     roomPos: $('#f-room-pos').value,
-    stations: [...selectedStations],
+    excludedStations: [...excludedStations],
   };
 }
 
@@ -1412,16 +1423,11 @@ function applyPreset(preset) {
   $('#f-area-max').value = preset.filters.areaMax || '';
   $('#f-age').value = preset.filters.age || '';
   $('#f-room-pos').value = preset.filters.roomPos || '';
-  const st = new Set(preset.filters.stations || []);
-  if (st.size > 0) {
-    selectedStations = st;
-    $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => {
-      cb.checked = selectedStations.has(cb.value);
-    });
-  } else {
-    selectedStations.clear();
-    $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = true);
-  }
+  const ex = new Set(preset.filters.excludedStations || preset.filters.stations || []);
+  excludedStations = ex;
+  $('#station-checks').querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.checked = !excludedStations.has(cb.value);
+  });
   updateStationCount();
   activePreset = preset.name;
   renderPresets();
