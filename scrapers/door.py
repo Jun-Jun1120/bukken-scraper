@@ -118,9 +118,14 @@ async def _extract_from_building(building: Locator) -> list[Property]:
     # Primary: new dl-based selectors
     station_el = building.locator("dl.description-item--station dd")
     if await station_el.count() > 0:
-        raw = await _safe_text(station_el)
-        # Replace internal newlines/br with " / " for multi-station
-        station = re.sub(r"\s*\n\s*", " / ", raw).strip()
+        try:
+            raw_html = await station_el.first.inner_html()
+            # Replace <br> tags with " / " for multi-station separation
+            raw = re.sub(r"<br\s*/?>", " / ", raw_html, flags=re.IGNORECASE)
+            raw = re.sub(r"<[^>]+>", "", raw)  # strip remaining tags
+            station = raw.strip()
+        except Exception:
+            station = await _safe_text(station_el)
 
     # Address and year_built from generic dl items
     dl_items = building.locator("dl.description-item")

@@ -95,6 +95,71 @@ async def _run_pipeline_async(
         logger.info("No properties found. Exiting pipeline.")
         return
 
+    # 1.1. AI fallback for properties missing station/address
+    from scrapers import needs_ai_fallback
+    missing = [p for p in properties if needs_ai_fallback(p) and p.url]
+    if missing and not skip_ai:
+        logger.info(
+            "AI fallback: %d/%d properties missing station/address",
+            len(missing), len(properties),
+        )
+        try:
+            from ai.extractor import (
+                extract_property_fields_sync,
+                reset_extraction_count,
+            )
+            import httpx
+
+            reset_extraction_count()
+            ai_count = 0
+            fixed: list[Property] = []
+            for prop in properties:
+                if needs_ai_fallback(prop) and prop.url:
+                    try:
+                        resp = httpx.get(
+                            prop.url,
+                            timeout=15,
+                            follow_redirects=True,
+                            headers={
+                                "User-Agent": (
+                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                    "AppleWebKit/537.36 Chrome/131.0.0.0"
+                                ),
+                            },
+                        )
+                        if resp.status_code == 200:
+                            extracted = extract_property_fields_sync(
+                                resp.text, config.gemini_model
+                            )
+                            if extracted:
+                                ai_count += 1
+                                prop = Property(
+                                    source=prop.source,
+                                    url=prop.url,
+                                    name=prop.name or extracted.name,
+                                    address=prop.address or extracted.address,
+                                    rent=prop.rent or extracted.rent,
+                                    management_fee=prop.management_fee or extracted.management_fee,
+                                    deposit=prop.deposit or extracted.deposit,
+                                    key_money=prop.key_money or extracted.key_money,
+                                    layout=prop.layout or extracted.layout,
+                                    area_sqm=prop.area_sqm or extracted.area_sqm,
+                                    floor=prop.floor or extracted.floor,
+                                    building_type=prop.building_type or extracted.building_type,
+                                    year_built=prop.year_built or extracted.year_built,
+                                    direction=prop.direction or extracted.direction,
+                                    station_access=prop.station_access or extracted.station_access,
+                                    features=prop.features or tuple(extracted.features),
+                                    image_url=prop.image_url,
+                                )
+                    except Exception:
+                        logger.debug("AI fallback failed for %s", prop.url)
+                fixed.append(prop)
+            properties = fixed
+            logger.info("AI fallback enriched %d properties", ai_count)
+        except ImportError:
+            logger.warning("AI extractor or httpx not available, skipping fallback")
+
     # 1.5. Filter out female-only properties
     before = len(properties)
     properties = [p for p in properties if not p.is_female_only]
