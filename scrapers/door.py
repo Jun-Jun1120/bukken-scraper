@@ -18,7 +18,7 @@ from scrapers import Property, needs_ai_fallback
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://door.ac"
-AREA_CODES = ["city-13113", "city-13110", "city-13104", "city-13103"]
+AREA_CODES = ["city-13113", "city-13104"]  # 渋谷区, 新宿区 (北参道フォーカス 2026-04-09)
 
 # DOOR now uses path-based layout filtering
 LAYOUT_PATH_MAP = {

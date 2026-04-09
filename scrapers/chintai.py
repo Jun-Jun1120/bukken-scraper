@@ -17,7 +17,7 @@ from scrapers import Property
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.chintai.net/tokyo/area/"
-AREA_CODES = ["13113", "13110", "13104", "13103"]
+AREA_CODES = ["13113", "13104"]  # 渋谷区, 新宿区 (北参道フォーカス 2026-04-09)
 
 
 def _build_search_url(area_code: str, criteria: SearchCriteria) -> str:

@@ -15,11 +15,14 @@ from scrapers import Property
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://suumo.jp/jj/chintai/ichiran/FR301FC001/"
+# 2026-04-09: 北参道駅指定(ek_80835)。渋谷区+新宿区全域の地域検索(FR301FC001)から切替
+# 旧URL: https://suumo.jp/jj/chintai/ichiran/FR301FC001/ で sc=13113,13104 → 1440件
+# 新URL: https://suumo.jp/chintai/tokyo/ek_80835/ で 571件(60%減) 駅徒歩10分以内
+BASE_URL = "https://suumo.jp/chintai/tokyo/ek_80835/"
 
 
 def _build_search_url(criteria: SearchCriteria) -> str:
-    """Build SUUMO search URL from criteria."""
+    """Build SUUMO search URL from criteria (北参道駅指定)."""
     rent_min = criteria.rent_min // 10000
     rent_max = criteria.rent_max // 10000
 
@@ -27,13 +30,6 @@ def _build_search_url(criteria: SearchCriteria) -> str:
     layout_codes = [layout_map[l] for l in criteria.layouts if l in layout_map]
 
     params = [
-        ("ar", "030"),
-        ("bs", "040"),
-        ("ta", "13"),
-        ("sc", "13113"),  # 渋谷区
-        ("sc", "13110"),  # 目黒区
-        ("sc", "13104"),  # 新宿区
-        ("sc", "13103"),  # 港区
         ("cb", f"{rent_min}.0"),
         ("ct", f"{rent_max}.0"),
     ]
@@ -48,6 +44,11 @@ def _build_search_url(criteria: SearchCriteria) -> str:
 
     if criteria.max_age_years > 0:
         params.append(("cn", str(criteria.max_age_years)))
+
+    # 駅徒歩 上限(et=N分): 5/7/10/15/20 のみSUUMOが受け付ける
+    if criteria.max_walk_minutes > 0:
+        et_val = min([v for v in (5, 7, 10, 15, 20) if v >= criteria.max_walk_minutes], default=10)
+        params.append(("et", str(et_val)))
 
     query = "&".join(f"{k}={v}" for k, v in params)
     return f"{BASE_URL}?{query}&page={{}}"

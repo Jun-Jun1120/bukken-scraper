@@ -18,7 +18,7 @@ from scrapers import Property
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://smocca.jp/search/tokyo/city/"
-AREA_CODES = ["13113", "13110", "13104", "13103"]
+AREA_CODES = ["13113", "13104"]  # 渋谷区, 新宿区 (北参道フォーカス 2026-04-09)
 
 FEMALE_KEYWORDS = ("女性限定", "女性専用", "女性のみ", "レディース")
 

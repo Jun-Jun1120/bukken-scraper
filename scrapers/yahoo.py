@@ -49,9 +49,7 @@ def _build_search_url(criteria: SearchCriteria) -> str:
     """Build Yahoo search URL from criteria."""
     params = [
         "sc_02=13113",  # 渋谷区
-        "sc_02=13110",  # 目黒区
-        "sc_02=13104",  # 新宿区
-        "sc_02=13103",  # 港区
+        "sc_02=13104",  # 新宿区 (北参道フォーカス 2026-04-09: 目黒/港除外)
         f"rent_min={criteria.rent_min // 10000}",
         f"rent_max={criteria.rent_max // 10000}",
     ]

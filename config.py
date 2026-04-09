@@ -4,10 +4,17 @@ import os
 from dataclasses import dataclass, field
 from typing import Final
 
-# Target location: Shibuya DT Building (渋谷DTビル, 道玄坂1-16-10)
-TARGET_LAT: Final[float] = 35.656619
-TARGET_LNG: Final[float] = 139.697314
-SEARCH_RADIUS_KM: Final[float] = 3.0
+# Target location: 北参道駅 (副都心線) — 2026-04-09: 北参道にフォーカス決定
+# 旧ターゲット(渋谷DTビル 35.656619, 139.697314)は下記 DT_LAT/LNG で補助的にキープ
+# 北参道は DTビルまで直線約2.2km(LUUP8分/副都心線4分)、東新宿まで副都心線直通4分で最適駅
+TARGET_LAT: Final[float] = 35.6744
+TARGET_LNG: Final[float] = 139.7078
+SEARCH_RADIUS_KM: Final[float] = 0.8  # 徒歩10分相当(80m/min)。 家賃補助3km制約内に自動収まる
+
+# Backup: 渋谷DTビル (家賃補助3km制約の中心点)
+DT_LAT: Final[float] = 35.656619
+DT_LNG: Final[float] = 139.697314
+DT_RADIUS_KM: Final[float] = 3.0
 
 
 @dataclass(frozen=True)
