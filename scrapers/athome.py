@@ -11,7 +11,8 @@ import logging
 import random
 import re
 
-from playwright.async_api import Locator, async_playwright
+from bs4 import BeautifulSoup, Tag
+from playwright.async_api import async_playwright
 
 from config import AppConfig, SearchCriteria
 from scrapers import Property, goto_with_retry
@@ -82,16 +83,6 @@ def _parse_area(text: str) -> float:
     return float(match.group(1)) if match else 0.0
 
 
-async def _safe_text(locator: Locator) -> str:
-    """Safely get text content."""
-    try:
-        if await locator.count() > 0:
-            return (await locator.first.text_content() or "").strip()
-    except Exception:
-        pass
-    return ""
-
-
 async def _is_captcha_page(page) -> bool:
     """Detect if the current page is a CAPTCHA challenge."""
     try:
@@ -119,88 +110,131 @@ async def _is_captcha_page(page) -> bool:
         return False
 
 
-async def _extract_rooms_from_building(building: Locator) -> list[Property]:
-    """Extract all room listings from a single building card."""
+def _bs_text(tag: Tag | None) -> str:
+    """Safely get trimmed text from a BS4 tag."""
+    if tag is None:
+        return ""
+    return tag.get_text(" ", strip=True)
+
+
+def _bs_select_one(tag: Tag, selectors: tuple[str, ...]) -> Tag | None:
+    """Try multiple CSS selectors; return the first matching tag."""
+    for sel in selectors:
+        found = tag.select_one(sel)
+        if found is not None:
+            return found
+    return None
+
+
+def _find_info_hint_by_dt(building: Tag, dt_keyword: str) -> str:
+    """Find dl.p-property__information-hint where dt contains keyword."""
+    for dl in building.select("dl.p-property__information-hint"):
+        dt = dl.find("dt")
+        if dt and dt_keyword in dt.get_text():
+            dd = dl.find("dd")
+            return _bs_text(dd)
+    return ""
+
+
+_BUILDING_TYPE_RE = re.compile(
+    r"(SRC|RC|鉄骨鉄筋コンクリート|鉄筋コンクリート|重量鉄骨|軽量鉄骨|鉄骨|ALC|木造)"
+)
+
+
+def _extract_rooms_from_building_html(building: Tag) -> list[Property]:
+    """Extract all room listings from a single building Tag using BeautifulSoup.
+
+    2026-04-09: BS4 版。従来の Playwright locator 版 (_extract_rooms_from_building)
+    はページあたり数千回の CDP 呼び出しで遅い (Windows で 2:30/page)。
+    HTML を一度取得して Python 側でパースすることで 10 倍以上高速化。
+    """
     properties: list[Property] = []
 
     # Building name
-    name = await _safe_text(
-        building.locator(
-            "h2.p-property__title--building, "
-            "h2[class*='property__title'], "
-            "h2 a"
-        )
+    name_el = _bs_select_one(
+        building,
+        (
+            "h2.p-property__title--building",
+            "h2[class*='property__title']",
+            "h2 a",
+            "h2",
+        ),
     )
+    name = _bs_text(name_el)
 
-    # Address
-    address = await _safe_text(
-        building.locator(
-            "dl.p-property__information-hint:has(i[class*='map']) dd strong, "
-            "dl:has(dt:has-text('所在地')) dd, "
-            ".p-property__address"
-        )
+    # Address: try "map" icon first, then dt with 所在地, then first dl's dd
+    address = ""
+    map_dl = building.select_one(
+        "dl.p-property__information-hint:has(i[class*='map'])"
     )
+    if map_dl is not None:
+        dd_strong = map_dl.select_one("dd strong")
+        address = _bs_text(dd_strong) if dd_strong else _bs_text(map_dl.find("dd"))
     if not address:
-        # Fallback: first dl's dd
-        first_dl = building.locator("dl.p-property__information-hint")
-        if await first_dl.count() > 0:
-            address = await _safe_text(first_dl.first.locator("dd strong, dd"))
+        address = _find_info_hint_by_dt(building, "所在地")
+    if not address:
+        addr_el = building.select_one(".p-property__address")
+        address = _bs_text(addr_el)
+    if not address:
+        first_dl = building.select_one("dl.p-property__information-hint")
+        if first_dl is not None:
+            dd_strong = first_dl.select_one("dd strong")
+            address = _bs_text(dd_strong) if dd_strong else _bs_text(first_dl.find("dd"))
 
     # Station access
-    station_access = await _safe_text(
-        building.locator(
-            "dl.p-property__information-hint:has(i[class*='train']) dd, "
-            "dl:has(dt:has-text('交通')) dd"
-        )
+    station_access = ""
+    train_dl = building.select_one(
+        "dl.p-property__information-hint:has(i[class*='train'])"
     )
+    if train_dl is not None:
+        station_access = _bs_text(train_dl.find("dd"))
     if not station_access:
-        info_hints = building.locator("dl.p-property__information-hint")
-        if await info_hints.count() >= 2:
-            station_access = await _safe_text(info_hints.nth(1).locator("dd"))
+        station_access = _find_info_hint_by_dt(building, "交通")
+    if not station_access:
+        hints = building.select("dl.p-property__information-hint")
+        if len(hints) >= 2:
+            station_access = _bs_text(hints[1].find("dd"))
 
-    # Building type and age (e.g. "RC 3階建 2019年3月" or "鉄筋コンクリート / 築5年")
-    type_age_raw = await _safe_text(
-        building.locator(
-            "dl.p-property__information-hint:has(i[class*='home']) dd, "
-            "dl:has(dt:has-text('築')) dd"
-        )
+    # Building type and age
+    type_age_raw = ""
+    home_dl = building.select_one(
+        "dl.p-property__information-hint:has(i[class*='home'])"
     )
+    if home_dl is not None:
+        type_age_raw = _bs_text(home_dl.find("dd"))
     if not type_age_raw:
-        info_hints = building.locator("dl.p-property__information-hint")
-        if await info_hints.count() >= 3:
-            type_age_raw = await _safe_text(info_hints.nth(2).locator("dd"))
+        type_age_raw = _find_info_hint_by_dt(building, "築")
+    if not type_age_raw:
+        hints = building.select("dl.p-property__information-hint")
+        if len(hints) >= 3:
+            type_age_raw = _bs_text(hints[2].find("dd"))
 
-    # Parse building_type and year_built from combined string
-    import re as _re
     building_type_from_list = ""
-    type_age = type_age_raw
-    bt_match = _re.search(
-        r"(SRC|RC|鉄骨鉄筋コンクリート|鉄筋コンクリート|重量鉄骨|軽量鉄骨|鉄骨|ALC|木造)",
-        type_age_raw,
-    )
+    bt_match = _BUILDING_TYPE_RE.search(type_age_raw)
     if bt_match:
         building_type_from_list = bt_match.group(1)
 
     # Room detail boxes
-    rooms = building.locator(
+    rooms = building.select(
         "div.p-property__room--detailbox, "
         "div[class*='property__room'], "
         "div.p-property__room"
     )
-    room_count = await rooms.count()
 
-    for i in range(room_count):
-        room = rooms.nth(i)
+    for room in rooms:
         try:
             # Detail link
-            link_el = room.locator(
-                "a.p-property__room-more-inner, "
-                "a[href*='/chintai/'], "
-                "a[class*='room-more']"
+            link_el = _bs_select_one(
+                room,
+                (
+                    "a.p-property__room-more-inner",
+                    "a[href*='/chintai/']",
+                    "a[class*='room-more']",
+                ),
             )
-            href = ""
-            if await link_el.count() > 0:
-                href = await link_el.first.get_attribute("href") or ""
+            href = link_el.get("href", "") if link_el else ""
+            if isinstance(href, list):
+                href = href[0] if href else ""
             url = (
                 f"https://www.athome.co.jp{href}"
                 if href and not href.startswith("http")
@@ -208,55 +242,66 @@ async def _extract_rooms_from_building(building: Locator) -> list[Property]:
             )
 
             # Rent
-            rent_text = await _safe_text(
-                room.locator(
-                    "b.p-property__information-rent, "
-                    "[class*='information-rent'], "
-                    ".rent"
-                )
+            rent_el = _bs_select_one(
+                room,
+                (
+                    "b.p-property__information-rent",
+                    "[class*='information-rent']",
+                    ".rent",
+                ),
             )
-            rent = _parse_rent_man(rent_text)
+            rent = _parse_rent_man(_bs_text(rent_el))
 
             # Management fee
-            mgmt_text = await _safe_text(
-                room.locator(
-                    "li.p-property__room-rent p.p-property__information-price span, "
-                    "[class*='information-price'] span"
-                )
+            mgmt_el = _bs_select_one(
+                room,
+                (
+                    "li.p-property__room-rent p.p-property__information-price span",
+                    "[class*='information-price'] span",
+                ),
             )
-            mgmt_fee = _parse_fee(mgmt_text)
+            mgmt_fee = _parse_fee(_bs_text(mgmt_el))
 
             # Layout
-            layout = await _safe_text(
-                room.locator(
-                    "li.p-property__room-floorplan div.p-property__floor, "
-                    "[class*='room-floorplan'] [class*='floor'], "
-                    ".madori"
-                )
+            layout_el = _bs_select_one(
+                room,
+                (
+                    "li.p-property__room-floorplan div.p-property__floor",
+                    "[class*='room-floorplan'] [class*='floor']",
+                    ".madori",
+                ),
             )
+            layout = _bs_text(layout_el)
 
-            # Area
-            area_text = await _safe_text(
-                room.locator(
-                    "li.p-property__room-floorplan > span, "
-                    "[class*='room-floorplan'] > span"
-                )
+            # Area — direct child span of room-floorplan li
+            area_text = ""
+            floorplan_li = room.select_one(
+                "li.p-property__room-floorplan, [class*='room-floorplan']"
             )
+            if floorplan_li is not None:
+                for child in floorplan_li.find_all("span", recursive=False):
+                    area_text = _bs_text(child)
+                    if area_text:
+                        break
             area = _parse_area(area_text)
 
             # Floor
-            floor = await _safe_text(
-                room.locator(
-                    "li.p-property__room-number, "
-                    "[class*='room-number']"
-                )
+            floor_el = _bs_select_one(
+                room,
+                (
+                    "li.p-property__room-number",
+                    "[class*='room-number']",
+                ),
             )
+            floor = _bs_text(floor_el)
 
             # Image
             image_url = ""
-            img_el = room.locator("img[src*='athome'], img[src*='http']")
-            if await img_el.count() > 0:
-                image_url = await img_el.first.get_attribute("src") or ""
+            img_el = room.find("img", src=True)
+            if img_el is not None:
+                src = img_el.get("src", "")
+                if isinstance(src, str) and src.startswith("http"):
+                    image_url = src
 
             if not rent:
                 continue
@@ -272,7 +317,7 @@ async def _extract_rooms_from_building(building: Locator) -> list[Property]:
                 area_sqm=area,
                 floor=floor,
                 building_type=building_type_from_list,
-                year_built=type_age,
+                year_built=type_age_raw,
                 station_access=station_access,
                 image_url=image_url,
             ))
@@ -492,22 +537,25 @@ async def scrape_athome(config: AppConfig) -> list[Property]:
                     captcha_hit = True
                     break
 
-                buildings = page.locator(
+                # 2026-04-09: BS4 ベース抽出に切替 (CDP 呼び出し削減で 10x 高速化)
+                # ページ HTML を 1 回取得 → ローカルでパース
+                page_html = await page.content()
+                soup = BeautifulSoup(page_html, "lxml")
+                building_tags = soup.select(
                     "div.p-property.p-property--building, "
                     "div.p-property--building, "
                     "div[class*='p-property--building']"
                 )
-                building_count = await buildings.count()
 
-                if building_count == 0:
+                if not building_tags:
                     logger.info(
                         "No buildings on athome %s page %d",
                         area_slug, page_num,
                     )
                     break
 
-                for i in range(building_count):
-                    rooms = await _extract_rooms_from_building(buildings.nth(i))
+                for building_tag in building_tags:
+                    rooms = _extract_rooms_from_building_html(building_tag)
                     properties.extend(rooms)
 
                 # Next page
