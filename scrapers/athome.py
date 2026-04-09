@@ -14,7 +14,7 @@ import re
 from playwright.async_api import Locator, async_playwright
 
 from config import AppConfig, SearchCriteria
-from scrapers import Property
+from scrapers import Property, goto_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -431,6 +431,15 @@ async def scrape_athome(config: AppConfig) -> list[Property]:
             });
         """)
 
+        # 2026-04-09: Block images/fonts/media to speed up page loads (was ~2min/page)
+        async def _block_heavy_resources(route) -> None:
+            if route.request.resource_type in ("image", "font", "media", "stylesheet"):
+                await route.abort()
+            else:
+                await route.continue_()
+
+        await context.route("**/*", _block_heavy_resources)
+
         page = await context.new_page()
 
         captcha_hit = False
@@ -447,15 +456,28 @@ async def scrape_athome(config: AppConfig) -> list[Property]:
                 logger.info("Scraping athome %s page %d", area_slug, page_num)
 
                 try:
-                    await asyncio.sleep(random.uniform(1.0, 3.0))
-                    await page.goto(
+                    await asyncio.sleep(random.uniform(0.5, 1.5))
+                    # 2026-04-09: wait_until="commit" でナビゲーションコミットのみ待機
+                    # DOM 描画は wait_for_selector で明示的に待つ
+                    await goto_with_retry(
+                        page,
                         search_url,
-                        timeout=config.scraping.timeout_sec * 1000,
+                        timeout_ms=config.scraping.timeout_sec * 1000,
+                        wait_until="commit",
+                        logger=logger,
                     )
-                    await page.wait_for_load_state("domcontentloaded")
+                    # 物件カードが出るまで待つ (最大 10 秒)
+                    try:
+                        await page.wait_for_selector(
+                            "div[class*='p-property--building']",
+                            timeout=10000,
+                            state="attached",
+                        )
+                    except Exception:
+                        pass  # No results or slow page — continue to extraction
                 except Exception:
                     logger.exception(
-                        "Failed to load athome page %d for %s",
+                        "Failed to load athome page %d for %s after retries",
                         page_num, area_slug,
                     )
                     break

@@ -13,7 +13,7 @@ import re
 from playwright.async_api import Locator, async_playwright
 
 from config import AppConfig, SearchCriteria
-from scrapers import Property
+from scrapers import Property, goto_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -367,10 +367,11 @@ async def scrape_smocca(config: AppConfig) -> list[Property]:
                 logger.info("Scraping Smocca %s page %d", area_code, page_num)
 
                 try:
-                    resp = await page.goto(
+                    resp = await goto_with_retry(
+                        page,
                         search_url,
-                        timeout=config.scraping.timeout_sec * 1000,
-                        wait_until="domcontentloaded",
+                        timeout_ms=config.scraping.timeout_sec * 1000,
+                        logger=logger,
                     )
                     # Handle redirect issues gracefully
                     if resp and resp.status >= 400:
@@ -387,23 +388,24 @@ async def scrape_smocca(config: AppConfig) -> list[Property]:
                             "Trying without query params...",
                             area_code, page_num,
                         )
-                        # Try simplified URL without params
+                        # Try simplified URL without params (also with retry)
                         try:
                             simple_url = f"{BASE_URL}{area_code}"
                             if page_num > 1:
                                 simple_url += f"/page/{page_num}"
-                            await page.goto(
+                            await goto_with_retry(
+                                page,
                                 simple_url,
-                                timeout=config.scraping.timeout_sec * 1000,
+                                timeout_ms=config.scraping.timeout_sec * 1000,
+                                logger=logger,
                             )
-                            await page.wait_for_load_state("domcontentloaded")
                         except Exception:
                             logger.exception(
                                 "Failed to load Smocca page (retry)",
                             )
                             break
                     else:
-                        logger.exception("Failed to load Smocca page")
+                        logger.exception("Failed to load Smocca page after retries")
                         break
 
                 listings = await _extract_listings(page)

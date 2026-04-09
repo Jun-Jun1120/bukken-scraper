@@ -14,7 +14,7 @@ import re
 from playwright.async_api import Locator, async_playwright
 
 from config import AppConfig, SearchCriteria
-from scrapers import Property
+from scrapers import Property, goto_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -30,27 +30,17 @@ FEMALE_KEYWORDS = ("女性限定", "女性専用", "女性のみ", "レディー
 
 
 def _build_search_params(criteria: SearchCriteria) -> str:
-    """Build query parameters for HOME'S search."""
-    rent_min = criteria.rent_min // 10000
-    rent_max = criteria.rent_max // 10000
+    """Build query parameters for HOME'S search.
 
-    layout_map = {"1R": "010", "1K": "020", "1DK": "030", "1LDK": "040", "2K": "050"}
-    layout_codes = [layout_map[ly] for ly in criteria.layouts if ly in layout_map]
-
-    params = [
-        f"priceMin={rent_min}",
-        f"priceMax={rent_max}",
-    ]
-    for code in layout_codes:
-        params.append(f"madori={code}")
-
-    if criteria.bath_toilet_separate:
-        params.append("cond=0002")
-
-    if criteria.city_gas:
-        params.append("cond=0028")
-
-    return "&".join(params)
+    2026-04-09: HOME'S が URL param 書式を変更済み。旧 format
+    (priceMin=5&madori=010&cond=0002) は HTTP 422 を返すようになった。
+    現在は base URL + ?page=N のみサポート。家賃/間取/設備フィルタは
+    パイプライン後段の Python 側で行う。
+    """
+    # 互換性のため引数は受け取るが返すのは空文字
+    # (rent/layout/bath/gas のポストフィルタは main.py 側で適用される)
+    _ = criteria
+    return ""
 
 
 def _parse_rent_man(text: str) -> int:
@@ -327,20 +317,30 @@ async def scrape_homes(config: AppConfig) -> list[Property]:
                 break
 
             for page_num in range(1, config.scraping.max_pages_per_site + 1):
-                search_url = f"{area_base_url}?{query_params}&page={page_num}"
+                # 2026-04-09: 新仕様。query_params は空なのでパス＋ページのみ
+                # 旧 URL (?priceMin=5&madori=010&cond=0002) は HOME'S が 422 返すので廃止
+                if page_num == 1:
+                    search_url = area_base_url
+                else:
+                    search_url = f"{area_base_url}?page={page_num}"
                 logger.info("Scraping HOME'S %s page %d", area_name, page_num)
 
                 try:
                     # Random delay before each page
                     await asyncio.sleep(random.uniform(1.0, 3.0))
 
-                    await page.goto(
+                    # wait_until="load" で JS 描画完了を待つ (旧 domcontentloaded では早すぎた)
+                    await goto_with_retry(
+                        page,
                         search_url,
-                        timeout=config.scraping.timeout_sec * 1000,
+                        timeout_ms=config.scraping.timeout_sec * 1000,
+                        wait_until="load",
+                        logger=logger,
                     )
-                    await page.wait_for_load_state("domcontentloaded")
+                    # JS レンダリング安定のため少し待つ
+                    await asyncio.sleep(1.5)
                 except Exception:
-                    logger.exception("Failed to load HOME'S page")
+                    logger.exception("Failed to load HOME'S page after retries")
                     break
 
                 # Check for CAPTCHA
@@ -357,6 +357,7 @@ async def scrape_homes(config: AppConfig) -> list[Property]:
                 buildings = page.locator(
                     "div[class*='mod-mergeBuilding'], "
                     "div.mod-mergeBuilding--rent--photo, "
+                    "div[class*='prg-building'], "
                     "div.p-property"
                 )
                 building_count = await buildings.count()

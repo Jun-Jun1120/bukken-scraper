@@ -13,7 +13,7 @@ import re
 from playwright.async_api import Locator, async_playwright
 
 from config import AppConfig, SearchCriteria
-from scrapers import Property, needs_ai_fallback
+from scrapers import Property, goto_with_retry, needs_ai_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +288,10 @@ async def _enrich_from_detail(page, prop: Property, delay: float) -> Property | 
         year_built = prop.year_built
         station = prop.station_access
         features: list[str] = list(prop.features)
+        # 2026-04-09: 詳細ページから rent/管理費を再取得して list ページ抽出のブレを補正
+        rent = prop.rent
+        mgmt_fee = prop.management_fee
+        rent_updated = False
 
         # Extract from building-table, room-table, contract-table
         rows = page.locator(
@@ -319,6 +323,17 @@ async def _enrich_from_detail(page, prop: Property, delay: float) -> Property | 
                     direction = td
             elif "築年" in th and not year_built:
                 year_built = td
+            elif ("賃料" in th or th.strip() == "家賃") and not rent_updated:
+                # 詳細ページの賃料を正として採用 (list ページの em.emphasis-primary は building 範囲値の
+                # 可能性がある)
+                new_rent = _parse_rent(td)
+                if new_rent > 0:
+                    rent = new_rent
+                    rent_updated = True
+            elif "管理費" in th or "共益費" in th:
+                new_mgmt = _parse_rent(td)
+                if new_mgmt > 0:
+                    mgmt_fee = new_mgmt
             elif "設備" in th or "条件" in th:
                 for item in re.split(r"[/／・、,\n]", td):
                     item = item.strip()
@@ -338,13 +353,19 @@ async def _enrich_from_detail(page, prop: Property, delay: float) -> Property | 
 
         await asyncio.sleep(delay)
 
+        if rent_updated and rent != prop.rent:
+            logger.info(
+                "DOOR: rent corrected from list (%d → %d) for %s",
+                prop.rent, rent, prop.name[:30],
+            )
+
         return Property(
             source=prop.source,
             url=prop.url,
             name=prop.name,
             address=address,
-            rent=prop.rent,
-            management_fee=prop.management_fee,
+            rent=rent,
+            management_fee=mgmt_fee,
             deposit=prop.deposit,
             key_money=prop.key_money,
             layout=prop.layout,
@@ -387,13 +408,14 @@ async def scrape_door(config: AppConfig) -> list[Property]:
                     logger.info("Scraping DOOR %s page %d", area_slug, page_num)
 
                     try:
-                        await page.goto(
+                        await goto_with_retry(
+                            page,
                             search_url,
-                            timeout=config.scraping.timeout_sec * 1000,
+                            timeout_ms=config.scraping.timeout_sec * 1000,
+                            logger=logger,
                         )
-                        await page.wait_for_load_state("domcontentloaded")
                     except Exception:
-                        logger.exception("Failed to load DOOR page")
+                        logger.exception("Failed to load DOOR page after retries")
                         break
 
                     # Primary: div.building-box (current DOOR structure)

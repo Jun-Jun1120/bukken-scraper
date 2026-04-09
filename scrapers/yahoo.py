@@ -13,7 +13,7 @@ import re
 from playwright.async_api import async_playwright
 
 from config import AppConfig, SearchCriteria
-from scrapers import Property
+from scrapers import Property, goto_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -354,13 +354,16 @@ async def scrape_yahoo(config: AppConfig) -> list[Property]:
             logger.info("Scraping Yahoo page %d", page_num)
 
             try:
-                await page.goto(
+                await goto_with_retry(
+                    page,
                     search_url,
-                    timeout=config.scraping.timeout_sec * 1000,
-                    wait_until="domcontentloaded",
+                    timeout_ms=config.scraping.timeout_sec * 1000,
+                    logger=logger,
                 )
             except Exception:
-                logger.exception("Failed to load Yahoo page %d", page_num)
+                logger.exception(
+                    "Failed to load Yahoo page %d after retries", page_num,
+                )
                 break
 
             # Extract JSON data from __SERVER_SIDE_CONTEXT__
