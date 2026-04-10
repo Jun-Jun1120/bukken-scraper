@@ -442,41 +442,43 @@ async def scrape_smocca(config: AppConfig) -> list[Property]:
             len(unique), len(properties),
         )
 
-        # Phase 2: Visit detail pages in parallel (respect enrichment cap)
+        # Phase 2: Visit detail pages in parallel (capped at enrichment_cap)
         enrichment_cap = config.scraping.detail_enrichment_cap
-        if len(unique) > enrichment_cap:
+        to_enrich = unique[:enrichment_cap]
+        to_skip = unique[enrichment_cap:]
+        if to_skip:
             logger.info(
-                "Smocca: skipping detail enrichment (%d > cap %d)",
-                len(unique), enrichment_cap,
+                "Smocca: enriching first %d of %d (cap), %d will use list data only",
+                len(to_enrich), len(unique), len(to_skip),
             )
-            enriched = unique
-        else:
-            concurrency = 5
-            semaphore = asyncio.Semaphore(concurrency)
-            enriched_count = 0
 
-            async def _enrich_one(idx: int, prop: Property) -> Property | None:
-                nonlocal enriched_count
-                async with semaphore:
-                    tab = await context.new_page()
-                    try:
-                        result = await _enrich_from_detail(
-                            tab, prop, config.scraping.request_delay_sec,
+        concurrency = 5
+        semaphore = asyncio.Semaphore(concurrency)
+        enriched_count = 0
+
+        async def _enrich_one(idx: int, prop: Property) -> Property | None:
+            nonlocal enriched_count
+            async with semaphore:
+                tab = await context.new_page()
+                try:
+                    result = await _enrich_from_detail(
+                        tab, prop, config.scraping.request_delay_sec,
+                    )
+                    enriched_count += 1
+                    if enriched_count % 20 == 0:
+                        logger.info(
+                            "Smocca: enriched %d/%d...",
+                            enriched_count, len(to_enrich),
                         )
-                        enriched_count += 1
-                        if enriched_count % 20 == 0:
-                            logger.info(
-                                "Smocca: enriched %d/%d...",
-                                enriched_count, len(unique),
-                            )
-                        return result
-                    finally:
-                        await tab.close()
+                    return result
+                finally:
+                    await tab.close()
 
-            results = await asyncio.gather(
-                *(_enrich_one(i, p) for i, p in enumerate(unique)),
-            )
-            enriched = [r for r in results if r is not None]
+        results = await asyncio.gather(
+            *(_enrich_one(i, p) for i, p in enumerate(to_enrich)),
+        )
+        enriched = [r for r in results if r is not None]
+        enriched.extend(to_skip)
 
         await browser.close()
 

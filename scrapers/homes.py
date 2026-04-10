@@ -403,30 +403,33 @@ async def scrape_homes(config: AppConfig) -> list[Property]:
             len(unique), len(properties),
         )
 
-        # Phase 2: Visit each detail page (respect enrichment cap)
+        # Phase 2: Visit detail pages (capped at enrichment_cap)
         enrichment_cap = config.scraping.detail_enrichment_cap
-        if captcha_hit or len(unique) > enrichment_cap:
-            if not captcha_hit:
-                logger.info(
-                    "HOME'S: skipping detail enrichment (%d > cap %d)",
-                    len(unique), enrichment_cap,
-                )
-            enriched = unique
-        else:
-            enriched = []
-            for i, prop in enumerate(unique):
+        to_enrich = unique if captcha_hit else unique[:enrichment_cap]
+        to_skip = [] if captcha_hit else unique[enrichment_cap:]
+        if to_skip:
+            logger.info(
+                "HOME'S: enriching first %d of %d (cap), %d will use list data only",
+                len(to_enrich), len(unique), len(to_skip),
+            )
+
+        enriched: list[Property] = []
+        if not captcha_hit:
+            for i, prop in enumerate(to_enrich):
                 if (i + 1) % 20 == 0:
-                    logger.info("HOME'S: enriching %d/%d...", i + 1, len(unique))
+                    logger.info("HOME'S: enriching %d/%d...", i + 1, len(to_enrich))
                 result = await _enrich_from_detail(
                     page, prop, config.scraping.request_delay_sec,
                 )
                 if result is not None:
                     enriched.append(result)
-                # Check if detail page triggered CAPTCHA
                 if await _is_captcha_page(page):
                     logger.warning("HOME'S: CAPTCHA during enrichment, stopping.")
-                    enriched.extend(unique[i + 1:])
+                    enriched.extend(to_enrich[i + 1:])
                     break
+        else:
+            enriched = list(to_enrich)
+        enriched.extend(to_skip)
 
         await browser.close()
 

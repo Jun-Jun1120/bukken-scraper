@@ -324,22 +324,24 @@ async def scrape_chintai(config: AppConfig) -> list[Property]:
                 unique.append(p)
         logger.info("CHINTAI: %d unique from %d total, enriching details...", len(unique), len(properties))
 
-        # Phase 2: Visit each detail page (respect enrichment cap)
+        # Phase 2: Visit each detail page (capped at enrichment_cap)
         enrichment_cap = config.scraping.detail_enrichment_cap
-        if len(unique) > enrichment_cap:
+        to_enrich = unique[:enrichment_cap]
+        to_skip = unique[enrichment_cap:]
+        if to_skip:
             logger.info(
-                "CHINTAI: skipping detail enrichment (%d > cap %d)",
-                len(unique), enrichment_cap,
+                "CHINTAI: enriching first %d of %d (cap), %d will use list data only",
+                len(to_enrich), len(unique), len(to_skip),
             )
-            enriched = unique
-        else:
-            enriched = []
-            for i, prop in enumerate(unique):
-                if (i + 1) % 20 == 0:
-                    logger.info("CHINTAI: enriching %d/%d...", i + 1, len(unique))
-                result = await _enrich_chintai_detail(page, prop, config.scraping.request_delay_sec)
-                if result is not None:
-                    enriched.append(result)
+
+        enriched: list[Property] = []
+        for i, prop in enumerate(to_enrich):
+            if (i + 1) % 20 == 0:
+                logger.info("CHINTAI: enriching %d/%d...", i + 1, len(to_enrich))
+            result = await _enrich_chintai_detail(page, prop, config.scraping.request_delay_sec)
+            if result is not None:
+                enriched.append(result)
+        enriched.extend(to_skip)
 
         await browser.close()
 
