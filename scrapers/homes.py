@@ -403,27 +403,30 @@ async def scrape_homes(config: AppConfig) -> list[Property]:
             len(unique), len(properties),
         )
 
-        # Phase 2: Visit each detail page
-        enriched: list[Property] = []
-        for i, prop in enumerate(unique):
-            if captcha_hit:
-                # If we already hit CAPTCHA, skip enrichment
-                enriched.append(prop)
-                continue
-            if (i + 1) % 20 == 0:
-                logger.info("HOME'S: enriching %d/%d...", i + 1, len(unique))
-            result = await _enrich_from_detail(
-                page, prop, config.scraping.request_delay_sec,
-            )
-            if result is not None:
-                enriched.append(result)
-            # Check if detail page triggered CAPTCHA
-            if await _is_captcha_page(page):
-                logger.warning("HOME'S: CAPTCHA during enrichment, stopping.")
-                captcha_hit = True
-                # Add remaining properties without enrichment
-                enriched.extend(unique[i + 1:])
-                break
+        # Phase 2: Visit each detail page (respect enrichment cap)
+        enrichment_cap = config.scraping.detail_enrichment_cap
+        if captcha_hit or len(unique) > enrichment_cap:
+            if not captcha_hit:
+                logger.info(
+                    "HOME'S: skipping detail enrichment (%d > cap %d)",
+                    len(unique), enrichment_cap,
+                )
+            enriched = unique
+        else:
+            enriched = []
+            for i, prop in enumerate(unique):
+                if (i + 1) % 20 == 0:
+                    logger.info("HOME'S: enriching %d/%d...", i + 1, len(unique))
+                result = await _enrich_from_detail(
+                    page, prop, config.scraping.request_delay_sec,
+                )
+                if result is not None:
+                    enriched.append(result)
+                # Check if detail page triggered CAPTCHA
+                if await _is_captcha_page(page):
+                    logger.warning("HOME'S: CAPTCHA during enrichment, stopping.")
+                    enriched.extend(unique[i + 1:])
+                    break
 
         await browser.close()
 

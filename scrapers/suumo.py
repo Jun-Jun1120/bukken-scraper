@@ -315,33 +315,41 @@ async def scrape_suumo(config: AppConfig) -> list[Property]:
 
         logger.info("SUUMO: %d properties from list pages, enriching details...", len(properties))
 
-        # Phase 2: Visit detail pages in parallel (multiple tabs)
-        concurrency = 5
-        semaphore = asyncio.Semaphore(concurrency)
-        enriched_count = 0
+        # Phase 2: Visit detail pages in parallel (respect enrichment cap)
+        enrichment_cap = config.scraping.detail_enrichment_cap
+        if len(properties) > enrichment_cap:
+            logger.info(
+                "SUUMO: skipping detail enrichment (%d > cap %d)",
+                len(properties), enrichment_cap,
+            )
+            enriched = properties
+        else:
+            concurrency = 5
+            semaphore = asyncio.Semaphore(concurrency)
+            enriched_count = 0
 
-        async def _enrich_one(prop: Property) -> Property | None:
-            nonlocal enriched_count
-            async with semaphore:
-                tab = await context.new_page()
-                try:
-                    result = await _enrich_from_detail(
-                        tab, prop, config.scraping.request_delay_sec,
-                    )
-                    enriched_count += 1
-                    if enriched_count % 20 == 0:
-                        logger.info(
-                            "SUUMO: enriching %d/%d...",
-                            enriched_count, len(properties),
+            async def _enrich_one(prop: Property) -> Property | None:
+                nonlocal enriched_count
+                async with semaphore:
+                    tab = await context.new_page()
+                    try:
+                        result = await _enrich_from_detail(
+                            tab, prop, config.scraping.request_delay_sec,
                         )
-                    return result
-                finally:
-                    await tab.close()
+                        enriched_count += 1
+                        if enriched_count % 20 == 0:
+                            logger.info(
+                                "SUUMO: enriching %d/%d...",
+                                enriched_count, len(properties),
+                            )
+                        return result
+                    finally:
+                        await tab.close()
 
-        results = await asyncio.gather(
-            *(_enrich_one(p) for p in properties),
-        )
-        enriched = [r for r in results if r is not None]
+            results = await asyncio.gather(
+                *(_enrich_one(p) for p in properties),
+            )
+            enriched = [r for r in results if r is not None]
 
         await browser.close()
 

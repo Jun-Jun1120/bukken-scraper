@@ -324,14 +324,22 @@ async def scrape_chintai(config: AppConfig) -> list[Property]:
                 unique.append(p)
         logger.info("CHINTAI: %d unique from %d total, enriching details...", len(unique), len(properties))
 
-        # Phase 2: Visit each detail page
-        enriched: list[Property] = []
-        for i, prop in enumerate(unique):
-            if (i + 1) % 20 == 0:
-                logger.info("CHINTAI: enriching %d/%d...", i + 1, len(unique))
-            result = await _enrich_chintai_detail(page, prop, config.scraping.request_delay_sec)
-            if result is not None:
-                enriched.append(result)
+        # Phase 2: Visit each detail page (respect enrichment cap)
+        enrichment_cap = config.scraping.detail_enrichment_cap
+        if len(unique) > enrichment_cap:
+            logger.info(
+                "CHINTAI: skipping detail enrichment (%d > cap %d)",
+                len(unique), enrichment_cap,
+            )
+            enriched = unique
+        else:
+            enriched = []
+            for i, prop in enumerate(unique):
+                if (i + 1) % 20 == 0:
+                    logger.info("CHINTAI: enriching %d/%d...", i + 1, len(unique))
+                result = await _enrich_chintai_detail(page, prop, config.scraping.request_delay_sec)
+                if result is not None:
+                    enriched.append(result)
 
         await browser.close()
 
