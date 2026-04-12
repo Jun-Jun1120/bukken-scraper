@@ -16,34 +16,34 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Write feedback data
+        env:
+          LIKES_JSON: ${{ toJSON(github.event.client_payload.likes) }}
+          DISLIKES_JSON: ${{ toJSON(github.event.client_payload.dislikes) }}
+          MAYBES_JSON: ${{ toJSON(github.event.client_payload.maybes) }}
+          NOTES_JSON: ${{ toJSON(github.event.client_payload.notes) }}
         run: |
-          python3 -c "
-          import json
-          likes = ${{ toJSON(github.event.client_payload.likes) }}
-          with open('docs/likes.json', 'w') as f:
-              json.dump(sorted(set(likes)), f, ensure_ascii=False, indent=2)
-          print(f'Wrote {len(likes)} likes')
-          "
-          python3 -c "
-          import json
-          dislikes = ${{ toJSON(github.event.client_payload.dislikes) }}
-          with open('docs/dislikes.json', 'w') as f:
-              json.dump(sorted(set(dislikes)), f, ensure_ascii=False, indent=2)
-          print(f'Wrote {len(dislikes)} dislikes')
-          " || true
-          python3 -c "
-          import json
-          maybes = ${{ toJSON(github.event.client_payload.maybes) }}
-          with open('docs/maybes.json', 'w') as f:
-              json.dump(sorted(set(maybes)), f, ensure_ascii=False, indent=2)
-          print(f'Wrote {len(maybes)} maybes')
-          " || true
           python3 << 'PYEOF'
-          import json
-          notes = ${{ toJSON(github.event.client_payload.notes) }}
-          with open('docs/notes.json', 'w') as f:
+          import json, os
+
+          likes = json.loads(os.environ.get("LIKES_JSON", "[]"))
+          with open("docs/likes.json", "w") as f:
+              json.dump(sorted(set(likes)), f, ensure_ascii=False, indent=2)
+          print(f"Wrote {len(likes)} likes")
+
+          dislikes = json.loads(os.environ.get("DISLIKES_JSON", "[]"))
+          with open("docs/dislikes.json", "w") as f:
+              json.dump(sorted(set(dislikes)), f, ensure_ascii=False, indent=2)
+          print(f"Wrote {len(dislikes)} dislikes")
+
+          maybes = json.loads(os.environ.get("MAYBES_JSON", "[]"))
+          with open("docs/maybes.json", "w") as f:
+              json.dump(sorted(set(maybes)), f, ensure_ascii=False, indent=2)
+          print(f"Wrote {len(maybes)} maybes")
+
+          notes = json.loads(os.environ.get("NOTES_JSON", "{}"))
+          with open("docs/notes.json", "w") as f:
               json.dump(notes, f, ensure_ascii=False, indent=2)
-          print(f'Wrote {len(notes)} notes')
+          print(f"Wrote {len(notes)} notes")
           PYEOF
 
       - name: Commit and push
