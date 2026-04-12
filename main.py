@@ -75,6 +75,94 @@ async def _scrape_all(
     return _deduplicate(all_properties)
 
 
+async def _reenrich_door_rents(properties: list[Property]) -> list[Property]:
+    """Re-fetch DOOR detail pages to get accurate rent after distance filter.
+
+    DOOR list pages show building-level rent ranges in em.emphasis-primary,
+    which often maps the cheapest room's rent to wrong room URLs.
+    After the distance filter only ~100 properties remain, so re-fetching
+    is fast (~2s each with httpx).
+    """
+    import re
+    import httpx
+
+    door_indices = [i for i, p in enumerate(properties) if p.source == "door" and p.url]
+    if not door_indices:
+        return properties
+
+    logger.info("DOOR rent re-enrichment: %d properties to verify", len(door_indices))
+    corrected = 0
+    result = list(properties)
+
+    async with httpx.AsyncClient(
+        timeout=15,
+        follow_redirects=True,
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0"},
+    ) as client:
+        for idx in door_indices:
+            prop = result[idx]
+            try:
+                resp = await client.get(prop.url)
+                if resp.status_code != 200:
+                    continue
+                html = resp.text
+
+                # Extract rent: look for 賃料 th/dt followed by td/dd with price
+                rent_match = re.search(
+                    r'(?:賃料|家賃).*?(?:</(?:th|dt)>).*?(?:<(?:td|dd)[^>]*>)\s*(.*?)\s*(?:</(?:td|dd)>)',
+                    html, re.DOTALL | re.IGNORECASE,
+                )
+                new_rent = 0
+                if rent_match:
+                    rent_text = re.sub(r'<[^>]+>', '', rent_match.group(1))
+                    m = re.search(r'([\d,]+)\s*円', rent_text)
+                    if m:
+                        new_rent = int(m.group(1).replace(',', ''))
+                    else:
+                        m = re.search(r'([\d.]+)\s*万', rent_text)
+                        if m:
+                            new_rent = int(float(m.group(1)) * 10000)
+
+                # Extract management fee
+                mgmt_match = re.search(
+                    r'(?:管理費|共益費).*?(?:</(?:th|dt)>).*?(?:<(?:td|dd)[^>]*>)\s*(.*?)\s*(?:</(?:td|dd)>)',
+                    html, re.DOTALL | re.IGNORECASE,
+                )
+                new_mgmt = 0
+                if mgmt_match:
+                    mgmt_text = re.sub(r'<[^>]+>', '', mgmt_match.group(1))
+                    m = re.search(r'([\d,]+)\s*円', mgmt_text)
+                    if m:
+                        new_mgmt = int(m.group(1).replace(',', ''))
+
+                # Sanity check: mgmt fee should be much smaller than rent
+                if new_mgmt >= new_rent or new_mgmt > 30000:
+                    new_mgmt = 0
+
+                if new_rent > 0 and new_rent != prop.rent:
+                    logger.info(
+                        "DOOR rent corrected: %s (%d → %d)",
+                        prop.name[:25], prop.rent, new_rent,
+                    )
+                    result[idx] = Property(
+                        source=prop.source, url=prop.url, name=prop.name,
+                        address=prop.address, rent=new_rent,
+                        management_fee=new_mgmt if new_mgmt else prop.management_fee,
+                        deposit=prop.deposit, key_money=prop.key_money,
+                        layout=prop.layout, area_sqm=prop.area_sqm,
+                        floor=prop.floor, building_type=prop.building_type,
+                        year_built=prop.year_built, direction=prop.direction,
+                        station_access=prop.station_access,
+                        features=prop.features, image_url=prop.image_url,
+                    )
+                    corrected += 1
+            except Exception:
+                logger.debug("DOOR re-enrich failed for %s", prop.url)
+
+    logger.info("DOOR rent re-enrichment: %d/%d corrected", corrected, len(door_indices))
+    return result
+
+
 async def _run_pipeline_async(
     config: AppConfig,
     suumo_only: bool = False,
@@ -228,6 +316,9 @@ async def _run_pipeline_async(
     if not properties:
         logger.info("No properties within range. Exiting pipeline.")
         return
+
+    # 2.5. Re-enrich DOOR properties from detail pages (list page rent is unreliable)
+    properties = await _reenrich_door_rents(properties)
 
     # 3. AI evaluation (only new properties, reuse existing evaluations)
     from ai.evaluator import Evaluation
