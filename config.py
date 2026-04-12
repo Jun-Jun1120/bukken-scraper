@@ -9,7 +9,7 @@ from typing import Final
 # 北参道は DTビルまで直線約2.2km(LUUP8分/副都心線4分)、東新宿まで副都心線直通4分で最適駅
 TARGET_LAT: Final[float] = 35.6744
 TARGET_LNG: Final[float] = 139.7078
-SEARCH_RADIUS_KM: Final[float] = 0.8  # 徒歩10分相当(80m/min)。 家賃補助3km制約内に自動収まる
+SEARCH_RADIUS_KM: Final[float] = 1.2  # 徒歩15分相当。北参道+周辺エリアをカバー
 
 # Backup: 渋谷DTビル (家賃補助3km制約の中心点)
 DT_LAT: Final[float] = 35.656619

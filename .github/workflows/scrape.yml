@@ -70,20 +70,31 @@
               output/report.html
             retention-days: 30
 
-        - name: Merge likes into data and update dashboard
+        - name: Merge feedback into data and update dashboard
           run: |
             python3 -c "
             import json
             from pathlib import Path
             data_path = Path('output/data.json')
             likes_path = Path('docs/likes.json')
-            if data_path.exists() and likes_path.exists():
+            dislikes_path = Path('docs/dislikes.json')
+            maybes_path = Path('docs/maybes.json')
+            notes_path = Path('docs/notes.json')
+            if data_path.exists():
                 data = json.loads(data_path.read_text())
-                likes = set(json.loads(likes_path.read_text()))
+                likes = set(json.loads(likes_path.read_text())) if likes_path.exists() else set()
+                dislikes = set(json.loads(dislikes_path.read_text())) if dislikes_path.exists() else set()
+                maybes = set(json.loads(maybes_path.read_text())) if maybes_path.exists() else set()
+                notes = json.loads(notes_path.read_text()) if notes_path.exists() else {}
                 for p in data:
-                    p['liked'] = p.get('url', '') in likes
+                    url = p.get('url', '')
+                    p['liked'] = url in likes
+                    p['disliked'] = url in dislikes
+                    p['maybe'] = url in maybes
+                    if url in notes:
+                        p['user_note'] = notes[url].get('text', '')
                 data_path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-                print(f'Merged {len(likes)} likes into {len(data)} properties')
+                print(f'Merged feedback: {len(likes)} likes, {len(dislikes)} dislikes, {len(notes)} notes into {len(data)} properties')
             " || true
             cp output/data.json docs/data.json || true
             git config user.name "github-actions[bot]"

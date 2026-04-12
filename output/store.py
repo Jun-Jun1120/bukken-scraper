@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 JST = timezone(timedelta(hours=9))
 STORE_PATH = Path(__file__).parent / "data.json"
+DOCS_DATA_PATH = Path(__file__).parent.parent / "docs" / "data.json"
 LIKES_PATH = Path(__file__).parent.parent / "docs" / "likes.json"
 DISLIKES_PATH = Path(__file__).parent.parent / "docs" / "dislikes.json"
 MAYBES_PATH = Path(__file__).parent.parent / "docs" / "maybes.json"
@@ -45,6 +46,7 @@ def _to_dict(prop: Property, ev: Evaluation) -> dict:
         "cons": list(ev.cons),
         "comment": ev.comment,
         "liked": False,
+        "first_seen": datetime.now(JST).strftime("%Y-%m-%d"),
         "scraped_at": datetime.now(JST).isoformat(),
     }
 
@@ -80,10 +82,11 @@ def save_results(results: list[tuple[Property, Evaluation]]) -> int:
         current_urls.add(prop.url)
         item = _to_dict(prop, ev)
 
-        # Preserve liked/disliked status
+        # Preserve liked/disliked status and first_seen date
         old = existing_by_url.get(prop.url)
         if old:
             item["liked"] = old.get("liked", False)
+            item["first_seen"] = old.get("first_seen", old.get("scraped_at", item["first_seen"]))
             item["scraped_at"] = old.get("scraped_at", item["scraped_at"])
             updated_count += 1
         else:
@@ -118,13 +121,21 @@ def save_results(results: list[tuple[Property, Evaluation]]) -> int:
 
 
 def load_all() -> list[dict]:
-    """Load all properties from JSON store."""
-    if not STORE_PATH.exists():
-        return []
-    try:
-        return json.loads(STORE_PATH.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return []
+    """Load all properties from JSON store, falling back to docs/data.json.
+
+    On CI, output/data.json doesn't persist between runs, so we read from
+    docs/data.json (committed by the previous workflow run) to preserve
+    evaluations, first_seen dates, and liked/disliked status.
+    """
+    for path in (STORE_PATH, DOCS_DATA_PATH):
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if data:
+                    return data
+            except (json.JSONDecodeError, OSError):
+                continue
+    return []
 
 
 def toggle_like(prop_url: str) -> bool:

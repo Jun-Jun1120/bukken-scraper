@@ -962,13 +962,17 @@ function getSortVal(p, key) {
     return m ? parseInt(m[1]) : 99;
   }
   if (key === 'scraped_at') {
-    return p.scraped_at || '0';
+    return p.first_seen || p.scraped_at || '0';
   }
   return p[key] || 0;
 }
 
 function applySort() {
   filtered.sort((a, b) => {
+    // Disliked items always go to the bottom
+    const aDis = a.disliked ? 1 : 0;
+    const bDis = b.disliked ? 1 : 0;
+    if (aDis !== bDis) return aDis - bDis;
     const va = getSortVal(a, sortKey);
     const vb = getSortVal(b, sortKey);
     if (typeof va === 'string') {
@@ -1348,7 +1352,7 @@ function saveNote() {
   NotesStore.set(p.url, { ...note, text });
   // Debounced card refresh for note icon
   clearTimeout(saveNote._timer);
-  saveNote._timer = setTimeout(() => renderCards(), 500);
+  saveNote._timer = setTimeout(() => { renderCards(); scheduleAutoSync(); }, 500);
 }
 function closeDetail() { $('#overlay').classList.remove('open'); document.body.style.overflow = ''; }
 $('#overlay').addEventListener('click', e => { if (e.target === $('#overlay')) closeDetail(); });
@@ -1485,6 +1489,33 @@ deletePreset = function(arg) {
 
 renderPresets();
 
+// Auto-sync: debounced sync to GitHub after evaluation changes
+let _autoSyncTimer = null;
+function scheduleAutoSync() {
+  clearTimeout(_autoSyncTimer);
+  _autoSyncTimer = setTimeout(async () => {
+    const token = localStorage.getItem(GH_TOKEN_KEY);
+    if (!token) return; // No token stored yet, skip auto-sync
+    const likes = LikesStore.export();
+    const dislikes = DislikesStore.export();
+    const maybes = MaybeStore.export();
+    const notes = NotesStore.getAll();
+    try {
+      const res = await fetch('https://api.github.com/repos/Jun-Jun1120/bukken-scraper/dispatches', {
+        method: 'POST',
+        headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_type: 'sync-likes', client_payload: { likes, dislikes, maybes, notes } }),
+      });
+      if (res.status === 204) {
+        $('#status').textContent = `自動同期完了 (${likes.length}件いいね, ${dislikes.length}件✗)`;
+        setTimeout(() => { $('#status').textContent = '毎朝7時に自動更新'; }, 3000);
+      } else if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem(GH_TOKEN_KEY);
+      }
+    } catch { /* silent fail for auto-sync */ }
+  }, 5000); // 5秒後に自動同期
+}
+
 // Like (localStorage)
 function toggleLike(idx) {
   const p = filtered[idx]; if (!p) return;
@@ -1494,6 +1525,7 @@ function toggleLike(idx) {
   const orig = allData.find(d => d.url === p.url);
   if (orig) { orig.liked = liked; if (liked) orig.disliked = false; }
   renderCards(); renderStats(); updatePrefsBar();
+  scheduleAutoSync();
 }
 
 // Maybe (localStorage)
@@ -1505,6 +1537,7 @@ function toggleMaybe(idx) {
   const orig = allData.find(d => d.url === p.url);
   if (orig) { orig.maybe = maybed; if (maybed) { orig.liked = false; orig.disliked = false; } }
   renderCards(); renderStats(); updatePrefsBar();
+  scheduleAutoSync();
 }
 
 // Dislike (localStorage)
@@ -1516,6 +1549,7 @@ function toggleDislike(idx) {
   const orig = allData.find(d => d.url === p.url);
   if (orig) { orig.disliked = disliked; if (disliked) { orig.liked = false; orig.maybe = false; } }
   renderCards(); renderStats(); updatePrefsBar();
+  scheduleAutoSync();
 }
 
 // Preferences (client-side computation)
