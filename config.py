@@ -4,41 +4,51 @@ import os
 from dataclasses import dataclass, field
 from typing import Final
 
-# Target location: 北参道駅 (副都心線) — 2026-04-09: 北参道にフォーカス決定
-# 旧ターゲット(渋谷DTビル 35.656619, 139.697314)は下記 DT_LAT/LNG で補助的にキープ
-# 北参道は DTビルまで直線約2.2km(LUUP8分/副都心線4分)、東新宿まで副都心線直通4分で最適駅
-TARGET_LAT: Final[float] = 35.6744
-TARGET_LNG: Final[float] = 139.7078
-SEARCH_RADIUS_KM: Final[float] = 1.2  # 徒歩15分相当。北参道+周辺エリアをカバー
-
-# Backup: 渋谷DTビル (家賃補助3km制約の中心点)
+# Search targets are defined in stations.py (multi-station).
+# The DT building (渋谷 DTビル) is the employer and imposes a hard 3km constraint
+# from the rent subsidy program — every property must fall within this radius
+# regardless of which station it is close to.
 DT_LAT: Final[float] = 35.656619
 DT_LNG: Final[float] = 139.697314
 DT_RADIUS_KM: Final[float] = 3.0
 
+# Optional Google Geocoding fallback. Leave unset to rely on GSI only.
+GOOGLE_MAPS_API_KEY: Final[str] = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+
 
 @dataclass(frozen=True)
 class SearchCriteria:
-    """Immutable search criteria for property scraping."""
+    """Immutable search criteria for property scraping.
 
+    Only fields that map to site URL filters are used to narrow the search at
+    source. Other preferences are applied at AI scoring time (see
+    ai/evaluator.py) so the hard filter stays broad and we don't drop good
+    candidates over a single missing spec.
+    """
+
+    # Rent / layout / walk — absolute constraints
     rent_min: int = 50000  # 5万円
-    rent_max: int = 150000  # 検索上限15万（管理費込み13万以下はパイプラインでフィルター）
+    rent_max: int = 150000  # 検索上限15万（13.5万超はAI側でスコア0）
     layouts: tuple[str, ...] = ("1R", "1K", "1DK", "1LDK", "2K")
-    structures: tuple[str, ...] = ("RC", "SRC", "鉄骨")  # 木造以外OK。防音性能でAIがスコア調整
-    max_age_years: int = 25  # 築25年以内（リノベ物件を拾うため緩和）
     max_walk_minutes: int = 10  # 駅徒歩10分以内
 
-    # Must-have conditions
-    bath_toilet_separate: bool = True  # BT別
-    prefer_south_facing: bool = True  # 南向き優先
-    min_stove_burners: int = 2  # 2口コンロ以上
-    washlet: bool = True  # ウォシュレット
-    indoor_drying: bool = True  # 室内物干し
-    city_gas: bool = True  # 都市ガス
-    indoor_laundry: bool = True  # 室内洗濯機置場
-    delivery_box: bool = True  # 宅配ボックス
+    # Building — 軽量鉄骨/木造は弾く、鉄骨もAI減点方向
+    structures: tuple[str, ...] = ("RC", "SRC", "重量鉄骨")
+    max_age_years: int = 20  # 築20年以内（以前は25年。防音と設備古さを重視して短縮）
 
-    # Nice-to-have
+    # Hard filters kept at source
+    bath_toilet_separate: bool = True  # BT別は絶対条件
+    indoor_drying: bool = True  # 室内物干し（生活必需）
+
+    # Previously hard, now soft (AI scoring handles precedence)
+    prefer_south_facing: bool = True  # 日当たり・南向きはAI加点
+    min_stove_burners: int = 1  # 2口は nice-to-have に緩和
+    washlet: bool = False  # 洗浄機能不要。暖房便座はAI側で要求
+    city_gas: bool = False  # 都市ガスは nice-to-have
+    indoor_laundry: bool = True  # 室内洗濯機置場
+    delivery_box: bool = False  # 宅配BOXは nice-to-have
+
+    # Nice-to-have (not a filter, only an AI signal)
     anytime_trash: bool = True  # 24時間ゴミ出し
 
 

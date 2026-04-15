@@ -12,17 +12,13 @@ from playwright.async_api import Locator, async_playwright
 
 from config import AppConfig, SearchCriteria
 from scrapers import Property
+from stations import STATIONS
 
 logger = logging.getLogger(__name__)
 
-# 2026-04-09: 北参道駅指定(ek_80835)。渋谷区+新宿区全域の地域検索(FR301FC001)から切替
-# 旧URL: https://suumo.jp/jj/chintai/ichiran/FR301FC001/ で sc=13113,13104 → 1440件
-# 新URL: https://suumo.jp/chintai/tokyo/ek_80835/ で 571件(60%減) 駅徒歩10分以内
-BASE_URL = "https://suumo.jp/chintai/tokyo/ek_80835/"
 
-
-def _build_search_url(criteria: SearchCriteria) -> str:
-    """Build SUUMO search URL from criteria (北参道駅指定)."""
+def _build_search_url(criteria: SearchCriteria, suumo_ek_code: str) -> str:
+    """Build SUUMO search URL for a specific station (駅コード指定)."""
     rent_min = criteria.rent_min // 10000
     rent_max = criteria.rent_max // 10000
 
@@ -51,7 +47,7 @@ def _build_search_url(criteria: SearchCriteria) -> str:
         params.append(("et", str(et_val)))
 
     query = "&".join(f"{k}={v}" for k, v in params)
-    return f"{BASE_URL}?{query}&page={{}}"
+    return f"https://suumo.jp/chintai/tokyo/{suumo_ek_code}/?{query}&page={{}}"
 
 
 def _parse_rent(text: str) -> int:
@@ -273,8 +269,7 @@ async def _enrich_from_detail(page, prop: Property, delay: float) -> Property | 
 
 
 async def scrape_suumo(config: AppConfig) -> list[Property]:
-    """Scrape SUUMO listings matching search criteria."""
-    url_template = _build_search_url(config.search)
+    """Scrape SUUMO listings matching search criteria across all target stations."""
     properties: list[Property] = []
 
     async with async_playwright() as pw:
@@ -284,34 +279,61 @@ async def scrape_suumo(config: AppConfig) -> list[Property]:
         )
         page = await context.new_page()
 
-        # Phase 1: Collect from list pages
-        for page_num in range(1, config.scraping.max_pages_per_site + 1):
-            search_url = url_template.format(page_num)
-            logger.info("Scraping SUUMO page %d", page_num)
+        # Phase 1: Collect from list pages — iterate each target station.
+        for station in STATIONS:
+            url_template = _build_search_url(config.search, station.suumo_ek_code)
+            station_before = len(properties)
+            for page_num in range(1, config.scraping.max_pages_per_site + 1):
+                search_url = url_template.format(page_num)
+                logger.info("Scraping SUUMO %s page %d", station.name, page_num)
 
-            try:
-                await page.goto(search_url, timeout=config.scraping.timeout_sec * 1000)
-                await page.wait_for_load_state("domcontentloaded")
-            except Exception:
-                logger.exception("Failed to load SUUMO page %d", page_num)
-                break
+                try:
+                    await page.goto(search_url, timeout=config.scraping.timeout_sec * 1000)
+                    await page.wait_for_load_state("domcontentloaded")
+                except Exception:
+                    logger.exception(
+                        "Failed to load SUUMO %s page %d", station.name, page_num,
+                    )
+                    break
 
-            buildings = page.locator("div.cassetteitem")
-            building_count = await buildings.count()
+                buildings = page.locator("div.cassetteitem")
+                building_count = await buildings.count()
 
-            if building_count == 0:
-                logger.info("No more buildings on page %d", page_num)
-                break
+                if building_count == 0:
+                    logger.info(
+                        "No more buildings on %s page %d", station.name, page_num,
+                    )
+                    break
 
-            for i in range(building_count):
-                rooms = await _extract_rooms_from_building(buildings.nth(i))
-                properties.extend(rooms)
+                for i in range(building_count):
+                    rooms = await _extract_rooms_from_building(buildings.nth(i))
+                    properties.extend(rooms)
 
-            next_btn = page.locator("p.pagination-parts a:has-text('次へ')")
-            if await next_btn.count() == 0:
-                break
+                next_btn = page.locator("p.pagination-parts a:has-text('次へ')")
+                if await next_btn.count() == 0:
+                    break
 
-            await asyncio.sleep(config.scraping.request_delay_sec)
+                await asyncio.sleep(config.scraping.request_delay_sec)
+            logger.info(
+                "SUUMO %s: %d properties collected",
+                station.name, len(properties) - station_before,
+            )
+
+        # Dedupe by URL across stations (buildings often appear under multiple stations).
+        seen_urls: set[str] = set()
+        unique: list[Property] = []
+        for prop in properties:
+            if prop.url and prop.url in seen_urls:
+                continue
+            if prop.url:
+                seen_urls.add(prop.url)
+            unique.append(prop)
+        if len(unique) < len(properties):
+            logger.info(
+                "SUUMO: deduped %d → %d unique properties",
+                len(properties), len(unique),
+            )
+        properties = unique
 
         logger.info("SUUMO: %d properties from list pages, enriching details...", len(properties))
 

@@ -40,6 +40,8 @@ def _to_dict(prop: Property, ev: Evaluation) -> dict:
         "station_access": prop.station_access,
         "features": list(prop.features),
         "image_url": prop.image_url,
+        "nearest_station_name": prop.nearest_station_name,
+        "nearest_station_distance_km": prop.nearest_station_distance_km,
         "score": ev.score,
         "recommendation": ev.recommendation,
         "pros": list(ev.pros),

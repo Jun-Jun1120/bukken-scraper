@@ -21,13 +21,11 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.athome.co.jp/chintai/tokyo/"
 
-# Area slugs for the target areas
-# athome may use -city or -ku suffixes; try both patterns
+# Area slugs aligned with stations.py target wards.
 AREA_SLUGS = [
-    "shibuya-city",   # 渋谷区
-    "meguro-city",    # 目黒区
-    "shinjuku-city",  # 新宿区
-    "minato-city",    # 港区
+    "shibuya-city",   # 渋谷区 (13113)
+    "shinjuku-city",  # 新宿区 (13104)
+    "minato-city",    # 港区 (13103)
 ]
 
 FEMALE_KEYWORDS = ("女性限定", "女性専用", "女性のみ", "レディース")

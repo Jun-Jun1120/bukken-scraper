@@ -14,11 +14,13 @@ from playwright.async_api import Locator, async_playwright
 
 from config import AppConfig, SearchCriteria
 from scrapers import Property, goto_with_retry, needs_ai_fallback
+from stations import WARD_CODES
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://door.ac"
-AREA_CODES = ["city-13113", "city-13104"]  # 渋谷区, 新宿区 (北参道フォーカス 2026-04-09)
+# DOOR uses "city-XXXXX" prefix. Source of truth: WARD_CODES from stations.py.
+AREA_CODES = [f"city-{code}" for code in WARD_CODES]
 
 # DOOR now uses path-based layout filtering
 LAYOUT_PATH_MAP = {

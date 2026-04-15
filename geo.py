@@ -1,21 +1,25 @@
 """Geocoding and distance filtering for properties.
 
-Uses the Geolonia Address API (free, no key required) to geocode
-Japanese addresses and filter by distance from target location.
+Two-stage filter:
+  1. Near at least one target station (walk_radius_km per station)
+  2. Within DT_RADIUS_KM of the DT building (hard constraint from rent subsidy)
+
+Primary geocoder: GSI (Japanese government, free). Falls back to Google
+Geocoding API when available and GSI fails.
 """
 
+import dataclasses
 import logging
 import math
 import urllib.parse
 
 import httpx
 
-from config import TARGET_LAT, TARGET_LNG, SEARCH_RADIUS_KM
+from config import DT_LAT, DT_LNG, DT_RADIUS_KM, GOOGLE_MAPS_API_KEY
 from scrapers import Property
+from stations import STATIONS, Station
 
 logger = logging.getLogger(__name__)
-
-GEOLONIA_API = "https://geolonia.github.io/japanese-addresses-api/ja"
 
 
 def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -32,8 +36,7 @@ def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-# Known address → coordinates mapping for common areas
-# (avoids API calls for frequently seen addresses)
+# Known ward centers for quick rough filtering (centers can be 3-5km from edges).
 KNOWN_COORDS: dict[str, tuple[float, float]] = {
     "渋谷区": (35.6640, 139.6982),
     "目黒区": (35.6414, 139.6981),
@@ -48,25 +51,47 @@ KNOWN_COORDS: dict[str, tuple[float, float]] = {
 }
 
 
-def _estimate_distance_from_address(address: str) -> float | None:
-    """Estimate distance from target using known ward coordinates.
+def _nearest_station(lat: float, lng: float) -> tuple[Station, float]:
+    """Return closest station and its distance in km."""
+    best: tuple[Station, float] | None = None
+    for station in STATIONS:
+        d = haversine_km(lat, lng, station.lat, station.lng)
+        if best is None or d < best[1]:
+            best = (station, d)
+    assert best is not None  # STATIONS is non-empty by construction
+    return best
 
-    Returns approximate distance in km, or None if ward not recognized.
+
+def _max_search_radius_km() -> float:
+    """Widest station walk radius — used for ward pre-filtering."""
+    return max(s.walk_radius_km for s in STATIONS)
+
+
+def _ward_passes_prefilter(address: str) -> bool:
+    """Quick ward-center filter. True = keep for geocoding; False = too far.
+
+    Uses a generous buffer since ward centers differ from actual coordinates
+    by several km. Only excludes properties whose ward is clearly out of range.
     """
+    ward_buffer_km = 4.0
     for ward, (lat, lng) in KNOWN_COORDS.items():
         if ward in address:
-            return haversine_km(TARGET_LAT, TARGET_LNG, lat, lng)
-    return None
+            # Reject only if ward center is far from both DT and every station.
+            if haversine_km(lat, lng, DT_LAT, DT_LNG) > DT_RADIUS_KM + ward_buffer_km:
+                return False
+            min_station_dist = min(
+                haversine_km(lat, lng, s.lat, s.lng) for s in STATIONS
+            )
+            if min_station_dist > _max_search_radius_km() + ward_buffer_km:
+                return False
+            return True
+    # Unknown ward — keep to be safe.
+    return True
 
 
-async def geocode_address(address: str, client: httpx.AsyncClient) -> tuple[float, float] | None:
-    """Geocode a Japanese address using free Geolonia API.
-
-    Returns (lat, lng) or None on failure.
-    """
+async def _geocode_gsi(address: str, client: httpx.AsyncClient) -> tuple[float, float] | None:
+    """Geocode via Japan GSI address search (free, no key)."""
     try:
-        # Extract prefecture and city for API lookup
-        # Format: 東京都渋谷区xxx → tokyo/shibuya
         encoded = urllib.parse.quote(address)
         response = await client.get(
             f"https://msearch.gsi.go.jp/address-search/AddressSearch?q={encoded}",
@@ -74,62 +99,110 @@ async def geocode_address(address: str, client: httpx.AsyncClient) -> tuple[floa
         )
         if response.status_code == 200:
             data = response.json()
-            if data and len(data) > 0:
+            if data:
                 coords = data[0].get("geometry", {}).get("coordinates", [])
                 if len(coords) == 2:
-                    # GSI returns [lng, lat]
-                    return (coords[1], coords[0])
+                    return (coords[1], coords[0])  # GSI returns [lng, lat]
     except Exception:
-        logger.debug("Geocoding failed for: %s", address)
+        logger.debug("GSI geocode failed: %s", address)
     return None
 
 
-async def filter_by_distance(
-    properties: list[Property],
-    radius_km: float = SEARCH_RADIUS_KM,
-) -> list[Property]:
-    """Filter properties to those within radius of target location.
+async def _geocode_google(
+    address: str, client: httpx.AsyncClient
+) -> tuple[float, float] | None:
+    """Geocode via Google Maps Geocoding API (requires GOOGLE_MAPS_API_KEY)."""
+    if not GOOGLE_MAPS_API_KEY:
+        return None
+    try:
+        response = await client.get(
+            "https://maps.googleapis.com/maps/api/geocode/json",
+            params={
+                "address": address,
+                "key": GOOGLE_MAPS_API_KEY,
+                "region": "jp",
+                "language": "ja",
+            },
+            timeout=10.0,
+        )
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get("results", [])
+            if results:
+                loc = results[0].get("geometry", {}).get("location", {})
+                lat = loc.get("lat")
+                lng = loc.get("lng")
+                if lat is not None and lng is not None:
+                    return (float(lat), float(lng))
+    except Exception:
+        logger.debug("Google geocode failed: %s", address)
+    return None
 
-    Uses ward-level estimation first, then geocoding API for borderline cases.
+
+async def geocode_address(
+    address: str, client: httpx.AsyncClient
+) -> tuple[float, float] | None:
+    """Geocode an address, trying GSI first then Google as fallback."""
+    coords = await _geocode_gsi(address, client)
+    if coords is not None:
+        return coords
+    return await _geocode_google(address, client)
+
+
+async def filter_by_distance(properties: list[Property]) -> list[Property]:
+    """Keep properties close to any target station AND within DT 3km.
+
+    Stage 1: Ward-level prefilter (drop obviously-out-of-range wards).
+    Stage 2: Geocode address, check (min station dist ≤ walk_radius)
+             AND (DT distance ≤ DT_RADIUS_KM).
     """
+    candidates: list[Property] = [
+        p for p in properties if _ward_passes_prefilter(p.address)
+    ]
+    logger.info(
+        "Ward prefilter: %d → %d candidates",
+        len(properties), len(candidates),
+    )
+
     filtered: list[Property] = []
-    needs_geocoding: list[Property] = []
+    geocode_failures = 0
+    async with httpx.AsyncClient() as client:
+        for prop in candidates:
+            coords = await geocode_address(prop.address, client)
+            if coords is None:
+                # Can't decide — include to be safe.
+                geocode_failures += 1
+                filtered.append(prop)
+                continue
 
-    # Phase 1: Quick ward-level filtering
-    # Ward centers can be 3-5km from their edges, so use a generous buffer
-    # to avoid falsely excluding properties near ward boundaries
-    ward_buffer_km = 4.0  # wards are large; center ≠ actual location
-    for prop in properties:
-        dist = _estimate_distance_from_address(prop.address)
-        if dist is not None:
-            if dist <= radius_km + ward_buffer_km:
-                # Ward is close enough that some addresses might be in range
-                needs_geocoding.append(prop)
-            # else: ward center is very far, safe to skip
-        else:
-            # Unknown ward, try geocoding
-            needs_geocoding.append(prop)
+            lat, lng = coords
+            dt_dist = haversine_km(lat, lng, DT_LAT, DT_LNG)
+            if dt_dist > DT_RADIUS_KM:
+                logger.debug(
+                    "Drop (DT %.2fkm): %s - %s", dt_dist, prop.name, prop.address,
+                )
+                continue
 
-    # Phase 2: Precise geocoding for borderline properties
-    if needs_geocoding:
-        async with httpx.AsyncClient() as client:
-            for prop in needs_geocoding:
-                coords = await geocode_address(prop.address, client)
-                if coords:
-                    dist = haversine_km(TARGET_LAT, TARGET_LNG, coords[0], coords[1])
-                    if dist <= radius_km:
-                        filtered.append(prop)
-                    else:
-                        logger.debug(
-                            "Filtered out (%.1fkm): %s - %s",
-                            dist, prop.name, prop.address,
-                        )
-                else:
-                    # Can't geocode - include to be safe
-                    filtered.append(prop)
+            station, station_dist = _nearest_station(lat, lng)
+            if station_dist > station.walk_radius_km:
+                logger.debug(
+                    "Drop (nearest %s %.2fkm > %.2fkm): %s",
+                    station.name, station_dist, station.walk_radius_km, prop.name,
+                )
+                continue
+
+            # Attach pre-computed nearest-station info so the AI evaluator
+            # doesn't have to re-parse station_access strings.
+            enriched = dataclasses.replace(
+                prop,
+                nearest_station_name=station.name,
+                nearest_station_distance_km=round(station_dist, 2),
+            )
+            filtered.append(enriched)
 
     logger.info(
-        "Distance filter: %d → %d properties (within %.1fkm)",
-        len(properties), len(filtered), radius_km,
+        "Distance filter: %d → %d properties (station ∩ DT 3km); "
+        "%d ungeocodeable kept",
+        len(candidates), len(filtered), geocode_failures,
     )
     return filtered

@@ -13,11 +13,12 @@ from playwright.async_api import Locator, async_playwright
 
 from config import AppConfig, SearchCriteria
 from scrapers import Property
+from stations import WARD_CODES
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.chintai.net/tokyo/area/"
-AREA_CODES = ["13113", "13104"]  # 渋谷区, 新宿区 (北参道フォーカス 2026-04-09)
+AREA_CODES = list(WARD_CODES)  # 渋谷区 (13113) + 新宿区 (13104) + 港区 (13103)
 
 
 def _build_search_url(area_code: str, criteria: SearchCriteria) -> str:

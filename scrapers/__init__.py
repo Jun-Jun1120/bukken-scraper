@@ -29,6 +29,12 @@ class Property:
     features: tuple[str, ...] = field(default_factory=tuple)  # 設備・条件
     image_url: str = ""  # 物件画像URL（元サイトから直接表示）
 
+    # Pre-computed by geo.filter_by_distance — AI reads these directly so it
+    # never has to parse the station_access string to figure out which target
+    # station is closest.
+    nearest_station_name: str = ""
+    nearest_station_distance_km: float = 0.0
+
     @property
     def total_rent(self) -> int:
         """Rent including management fee."""
@@ -45,6 +51,43 @@ class Property:
 def needs_ai_fallback(prop: Property) -> bool:
     """Check if critical fields are missing and AI extraction should be attempted."""
     return not prop.station_access or not prop.address
+
+
+# Canonical feature tag → Japanese keywords that should resolve to it across
+# sites. Keywords use substring match (case-insensitive). This normalization
+# lets the AI evaluator check specific capabilities without each scraper
+# having to standardize raw strings.
+FEATURE_TAGS: dict[str, tuple[str, ...]] = {
+    # 暖房便座 (seat-heating): ウォシュレット units almost always include it,
+    # so presence of either keyword implies heated_seat=True.
+    "heated_seat": ("暖房便座", "温水洗浄便座", "ウォシュレット"),
+    "washlet": ("ウォシュレット", "温水洗浄便座"),  # 洗浄機能 specifically
+    "indoor_drying": ("室内物干し", "室内干し", "ランドリールーム"),
+    "indoor_laundry": ("室内洗濯機", "室内洗濯置"),
+    "delivery_box": ("宅配ボックス", "宅配BOX", "宅配box"),
+    "city_gas": ("都市ガス",),
+    "two_burner": ("2口コンロ", "二口コンロ", "2口ガス", "2口IH", "二口ガス", "2口以上"),
+    "anytime_trash": ("24時間ゴミ", "ゴミ出し24", "24時間ごみ"),
+    "elevator": ("エレベーター", "EV"),
+    "auto_lock": ("オートロック",),
+    "delivery_free": ("仲介手数料不要", "仲介手数料無", "AD無料"),
+    "no_key_money": ("礼金なし", "礼金0", "礼金０"),
+    "south_facing": ("南向き", "南面"),
+}
+
+
+def has_feature(features: tuple[str, ...], tag: str) -> bool:
+    """Check if a property has the given normalized capability tag."""
+    keywords = FEATURE_TAGS.get(tag, ())
+    if not keywords:
+        return False
+    text = " ".join(features).lower()
+    return any(k.lower() in text for k in keywords)
+
+
+def normalized_features(features: tuple[str, ...]) -> dict[str, bool]:
+    """Return {tag: present} for every canonical feature tag."""
+    return {tag: has_feature(features, tag) for tag in FEATURE_TAGS}
 
 
 # Errors that should not be retried (they won't succeed on retry)

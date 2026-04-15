@@ -14,11 +14,12 @@ from playwright.async_api import Locator, async_playwright
 
 from config import AppConfig, SearchCriteria
 from scrapers import Property, goto_with_retry
+from stations import WARD_CODES
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://smocca.jp/search/tokyo/city/"
-AREA_CODES = ["13113", "13104"]  # 渋谷区, 新宿区 (北参道フォーカス 2026-04-09)
+AREA_CODES = list(WARD_CODES)  # 渋谷区 (13113) + 新宿区 (13104) + 港区 (13103)
 
 FEMALE_KEYWORDS = ("女性限定", "女性専用", "女性のみ", "レディース")
 

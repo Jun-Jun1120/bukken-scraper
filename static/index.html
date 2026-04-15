@@ -376,9 +376,17 @@ body {
         <button class="btn btn-outline" id="btn-reset" style="font-size:12px;padding:6px 14px">リセット</button>
       </div>
     </div>
+    <div id="target-station-chips" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px">
+      <span style="font-size:12px;font-weight:600;color:var(--muted);align-self:center;margin-right:4px">ターゲット駅:</span>
+      <button type="button" class="chip chip-station active" data-station="" style="padding:4px 12px;border:1px solid #d1d5db;border-radius:999px;background:#fff;cursor:pointer;font-size:12px">すべて</button>
+      <button type="button" class="chip chip-station" data-station="北参道" style="padding:4px 12px;border:1px solid #d1d5db;border-radius:999px;background:#fff;cursor:pointer;font-size:12px">北参道</button>
+      <button type="button" class="chip chip-station" data-station="代々木" style="padding:4px 12px;border:1px solid #d1d5db;border-radius:999px;background:#fff;cursor:pointer;font-size:12px">代々木</button>
+      <button type="button" class="chip chip-station" data-station="国立競技場" style="padding:4px 12px;border:1px solid #d1d5db;border-radius:999px;background:#fff;cursor:pointer;font-size:12px">国立競技場</button>
+      <button type="button" class="chip chip-station" data-station="青山一丁目" style="padding:4px 12px;border:1px solid #d1d5db;border-radius:999px;background:#fff;cursor:pointer;font-size:12px">青山一丁目</button>
+    </div>
     <div id="station-filter" style="margin-top:12px;display:none">
       <label style="font-size:12px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:8px" id="station-toggle">
-        駅で絞り込み <span style="font-size:10px" id="station-arrow">&#9660;</span>
+        駅で絞り込み（詳細） <span style="font-size:10px" id="station-arrow">&#9660;</span>
         <span id="station-selected-count" style="font-size:11px;color:var(--accent);font-weight:700"></span>
       </label>
       <div id="station-checks" style="display:none;flex-wrap:wrap;gap:4px 8px;max-height:200px;overflow-y:auto;padding:8px 0"></div>
@@ -511,6 +519,7 @@ function extractStations(stationStr) {
 
 let stationFilterOpen = false;
 let selectedStations = new Set(); // empty = all
+let targetStation = ''; // '' = all, else one of 北参道/代々木/国立競技場/青山一丁目
 
 function buildStationFilter() {
   const container = $('#station-filter');
@@ -653,7 +662,11 @@ function applyFilters() {
         if (!m || currentYear - parseInt(m[1]) > maxAge) return false;
       }
     }
-    // Station filter
+    // Target-station quick chip (uses pre-computed nearest_station_name)
+    if (targetStation) {
+      if (p.nearest_station_name !== targetStation) return false;
+    }
+    // Detail station filter (by parsed station_access)
     if (selectedStations.size > 0) {
       const propStations = extractStations(p.station_access);
       if (!propStations.some(s => selectedStations.has(s))) return false;
@@ -844,6 +857,22 @@ $$('.sort-btn').forEach(btn => {
     applySort();
   });
 });
+
+// Target-station quick chips
+document.querySelectorAll('.chip-station').forEach(btn => {
+  btn.addEventListener('click', () => {
+    targetStation = btn.dataset.station || '';
+    document.querySelectorAll('.chip-station').forEach(b => {
+      b.classList.toggle('active', b.dataset.station === targetStation);
+      b.style.background = b.dataset.station === targetStation ? 'var(--accent, #2563eb)' : '#fff';
+      b.style.color = b.dataset.station === targetStation ? '#fff' : 'inherit';
+    });
+    applyFilters();
+  });
+});
+// Initialize active state
+document.querySelector('.chip-station[data-station=""]').style.background = 'var(--accent, #2563eb)';
+document.querySelector('.chip-station[data-station=""]').style.color = '#fff';
 
 // Filter listeners
 ['#f-rent-min','#f-rent-max','#f-layout','#f-score','#f-source','#f-area-min','#f-area-max','#f-age'].forEach(s => {

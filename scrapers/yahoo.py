@@ -14,6 +14,7 @@ from playwright.async_api import async_playwright
 
 from config import AppConfig, SearchCriteria
 from scrapers import Property, goto_with_retry
+from stations import WARD_CODES
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +48,11 @@ LAYOUT_MAP_REVERSE = {
 
 def _build_search_url(criteria: SearchCriteria) -> str:
     """Build Yahoo search URL from criteria."""
-    params = [
-        "sc_02=13113",  # 渋谷区
-        "sc_02=13104",  # 新宿区 (北参道フォーカス 2026-04-09: 目黒/港除外)
+    params = [f"sc_02={code}" for code in WARD_CODES]  # 渋谷区+新宿区+港区
+    params.extend([
         f"rent_min={criteria.rent_min // 10000}",
         f"rent_max={criteria.rent_max // 10000}",
-    ]
+    ])
 
     layout_map = {"1R": "1", "1K": "2", "1DK": "3", "1LDK": "4", "2K": "5"}
     for layout in criteria.layouts:

@@ -28,13 +28,56 @@ logger = logging.getLogger(__name__)
 
 
 def _deduplicate(properties: list[Property]) -> list[Property]:
-    """Remove duplicate properties by URL, keeping first occurrence."""
-    seen: set[str] = set()
+    """Remove duplicates across sites, keeping first occurrence.
+
+    Two passes:
+      1. URL — exact same listing link (same site, same room).
+      2. Fingerprint (name + normalized address + total_rent + area + layout) —
+         catches the same building re-listed on SUUMO/CHINTAI/HOME'S etc. so
+         AI evaluation doesn't run 3x for the same apartment.
+    """
+    import re
+
+    def _normalize_address(addr: str) -> str:
+        # Strip common noise: 丁目/番/号 separators and whitespace.
+        s = re.sub(r"[\s　]+", "", addr or "")
+        s = re.sub(r"[－\-‐]", "-", s)
+        return s
+
+    seen_urls: set[str] = set()
+    seen_fp: set[tuple] = set()
     unique: list[Property] = []
+    url_dupes = 0
+    fp_dupes = 0
     for prop in properties:
-        if prop.url and prop.url not in seen:
-            seen.add(prop.url)
-            unique.append(prop)
+        if prop.url:
+            if prop.url in seen_urls:
+                url_dupes += 1
+                continue
+            seen_urls.add(prop.url)
+
+        fp = (
+            (prop.name or "").strip(),
+            _normalize_address(prop.address),
+            prop.total_rent,
+            round(prop.area_sqm, 1),
+            (prop.layout or "").strip(),
+        )
+        # Only fingerprint-dedup when the key is substantive enough to be
+        # unique — avoid over-dedup when multiple fields are empty.
+        if all(fp[:3]):
+            if fp in seen_fp:
+                fp_dupes += 1
+                continue
+            seen_fp.add(fp)
+
+        unique.append(prop)
+
+    if url_dupes or fp_dupes:
+        logger.info(
+            "Dedup: %d URL dupes + %d cross-site dupes removed (%d → %d)",
+            url_dupes, fp_dupes, len(properties), len(unique),
+        )
     return unique
 
 
