@@ -297,16 +297,16 @@ async def _run_pipeline_async(
     if before != len(properties):
         logger.info("Filtered out %d female-only properties", before - len(properties))
 
-    # 1.6. Filter by total rent (管理費込み13.5万以下が上限。rent==0は不明扱いで残す)
-    _max_total = 135000
+    # 1.6. Filter by total rent (管理費込み14.5万以下が上限。rent==0は不明扱いで残す)
+    _max_total = 145000
     _before = len(properties)
     properties = [p for p in properties if p.total_rent <= _max_total or p.total_rent == 0]
     _filtered = _before - len(properties)
     if _filtered:
         logger.info("Filtered out %d properties over %d yen total rent", _filtered, _max_total)
-    # Log sweet spot count
-    _sweet = len([p for p in properties if 0 < p.total_rent <= 125000])
-    logger.info("Sweet spot (12.5万以下): %d / %d properties", _sweet, len(properties))
+    # Log sweet spot count (12〜13.5万)
+    _sweet = len([p for p in properties if 120000 <= p.total_rent <= 135000])
+    logger.info("Sweet spot (12〜13.5万): %d / %d properties", _sweet, len(properties))
 
     # 1.7. Filter by building structure (木造を除外)
     _before = len(properties)

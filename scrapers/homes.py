@@ -18,12 +18,14 @@ from scrapers import Property, goto_with_retry
 
 logger = logging.getLogger(__name__)
 
-# Wards aligned with stations.py target wards. 目黒区 was removed because
-# no target station falls within it.
+# Wards aligned with stations.py target wards.
 AREA_URLS = {
     "shibuya": "https://www.homes.co.jp/chintai/tokyo/shibuya-city/list/",    # 13113
     "shinjuku": "https://www.homes.co.jp/chintai/tokyo/shinjuku-city/list/",  # 13104
     "minato": "https://www.homes.co.jp/chintai/tokyo/minato-city/list/",      # 13103
+    "meguro": "https://www.homes.co.jp/chintai/tokyo/meguro-city/list/",      # 13110
+    "setagaya": "https://www.homes.co.jp/chintai/tokyo/setagaya-city/list/",  # 13112
+    "shinagawa": "https://www.homes.co.jp/chintai/tokyo/shinagawa-city/list/",  # 13109 (目黒駅)
 }
 
 FEMALE_KEYWORDS = ("女性限定", "女性専用", "女性のみ", "レディース")

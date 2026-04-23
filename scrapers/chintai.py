@@ -70,9 +70,21 @@ async def _extract_from_page(page) -> list[Property]:
     # Use the smaller count to avoid index errors
     n = min(count, rent_count)
 
-    # Get detail links
-    links = page.locator("a.bukkenlisting_link[href*='/detail/']")
-    link_count = await links.count()
+    # Get detail links (CHINTAI removed .bukkenlisting_link class)
+    # Deduplicate hrefs: page may have multiple <a> per room pointing to same URL
+    link_els = page.locator("a[href*='/detail/bk-']")
+    raw_link_count = await link_els.count()
+    unique_hrefs: list[str] = []
+    seen_hrefs: set[str] = set()
+    for li in range(raw_link_count):
+        href = await link_els.nth(li).get_attribute("href") or ""
+        if href and href not in seen_hrefs:
+            seen_hrefs.add(href)
+            unique_hrefs.append(href)
+
+    if unique_hrefs:
+        logger.debug("CHINTAI: %d unique detail links from %d <a> tags (rooms: %d)",
+                      len(unique_hrefs), raw_link_count, n)
 
     for i in range(n):
         try:
@@ -91,8 +103,8 @@ async def _extract_from_page(page) -> list[Property]:
             station_access = f"{station} 徒歩{walk}分" if station else ""
 
             url = ""
-            if i < link_count:
-                href = await links.nth(i).get_attribute("href") or ""
+            if i < len(unique_hrefs):
+                href = unique_hrefs[i]
                 url = f"https://www.chintai.net{href}" if href and not href.startswith("http") else href
 
             image_url = ""

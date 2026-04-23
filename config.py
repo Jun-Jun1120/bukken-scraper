@@ -28,9 +28,9 @@ class SearchCriteria:
 
     # Rent / layout / walk — absolute constraints
     rent_min: int = 50000  # 5万円
-    rent_max: int = 150000  # 検索上限15万（13.5万超はAI側でスコア0）
+    rent_max: int = 160000  # 検索上限16万（14.5万超はAI側でスコア0、管理費考慮で広めに取る）
     layouts: tuple[str, ...] = ("1R", "1K", "1DK", "1LDK", "2K")
-    max_walk_minutes: int = 10  # 駅徒歩10分以内
+    max_walk_minutes: int = 15  # 駅徒歩15分以内（DT 3km 圏内なら徒歩許容を広めに）
 
     # Building — 軽量鉄骨/木造は弾く、鉄骨もAI減点方向
     structures: tuple[str, ...] = ("RC", "SRC", "重量鉄骨")

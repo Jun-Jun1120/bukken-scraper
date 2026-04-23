@@ -365,6 +365,56 @@ body {
 .compare-table td { font-weight: 500; }
 .compare-table tr:first-child td { font-weight: 700; font-size: 14px; }
 
+/* Liked list modal */
+.liked-overlay {
+  position: fixed; inset: 0; background: rgba(255,255,255,.97); z-index: 300;
+  display: none; flex-direction: column; overflow: hidden;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.liked-overlay.open { display: flex; }
+.liked-header {
+  padding: 20px 24px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; background: white;
+}
+.liked-header h2 { font-size: 20px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.liked-header h2 .heart { color: var(--red); }
+.liked-header .liked-count { color: var(--muted); font-size: 14px; font-weight: 500; }
+.liked-body { flex: 1; overflow: auto; padding: 20px; }
+.liked-body-inner { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+.liked-empty { text-align: center; padding: 80px 20px; color: var(--muted); }
+.liked-empty-icon { font-size: 56px; color: #d1d5db; margin-bottom: 12px; }
+.liked-item {
+  background: white; border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 12px; display: flex; gap: 12px; align-items: center; cursor: pointer;
+  transition: transform .15s, box-shadow .15s;
+}
+.liked-item:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+.liked-item-img {
+  width: 104px; height: 78px; border-radius: 8px; object-fit: cover; flex-shrink: 0; background: var(--bg);
+}
+.liked-item-placeholder {
+  width: 104px; height: 78px; border-radius: 8px; flex-shrink: 0; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; font-size: 32px; color: var(--muted);
+}
+.liked-item-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.liked-item-name { font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.liked-item-address { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.liked-item-station { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.liked-item-meta { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.liked-item-actions { display: flex; flex-direction: column; gap: 6px; align-items: center; flex-shrink: 0; }
+.liked-item-score {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 48px; height: 48px; border-radius: 50%; font-size: 13px; font-weight: 800;
+}
+.liked-item-score small { font-size: 8px; opacity: .7; margin-left: 1px; }
+.liked-item-source { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+@media (max-width: 640px) {
+  .liked-item-img, .liked-item-placeholder { width: 80px; height: 60px; }
+  .liked-item-name { white-space: normal; }
+}
+.stat-card.clickable { cursor: pointer; transition: transform .15s, box-shadow .15s; }
+.stat-card.clickable:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.1); }
+
 /* Map */
 .map-container { display: none; margin-bottom: 14px; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); position: relative; z-index: 1; }
 .map-container.visible { display: block; }
@@ -586,6 +636,17 @@ body {
   <div class="compare-body" id="compare-body"></div>
 </div>
 
+<!-- Liked list overlay -->
+<div class="liked-overlay" id="liked-overlay">
+  <div class="liked-header">
+    <h2><span class="heart">&#10084;</span>いいね一覧<span class="liked-count" id="liked-count"></span></h2>
+    <button class="btn btn-outline" onclick="closeLikedList()">閉じる</button>
+  </div>
+  <div class="liked-body">
+    <div class="liked-body-inner" id="liked-body"></div>
+  </div>
+</div>
+
 <!-- Detail modal -->
 <div class="overlay" id="overlay">
   <div class="detail" id="detail"></div>
@@ -601,6 +662,10 @@ let mapInstance = null;
 let mapVisible = false;
 let chartVisible = false;
 let buildingGroupEnabled = localStorage.getItem('bukken-building-group') === 'true';
+
+// Priority=2 stations (パートナー通勤で優先) — always bubble to top in sort.
+// Keep in sync with stations.py (priority=2 entries).
+const PRIORITY_STATIONS = new Set(['北参道', '代々木', '国立競技場', '青山一丁目']);
 
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
@@ -622,7 +687,8 @@ const STATION_COORDS = {
   '東北沢': [35.6666, 139.6725], '乃木坂': [35.6661, 139.7268],
   '駒場東大前': [35.6609, 139.6819], '中目黒': [35.6440, 139.6992],
   '池ノ上': [35.6601, 139.6721], '外苑前': [35.6705, 139.7179],
-  '下北沢': [35.6615, 139.6680],
+  '下北沢': [35.6615, 139.6680], '三軒茶屋': [35.6436, 139.6695],
+  '目黒': [35.6337, 139.7156],
 };
 
 // Maybe Store (localStorage) - △ 微妙
@@ -911,7 +977,7 @@ function renderStats() {
     <div class="stat-card"><div class="stat-val" style="color:${scoreColor(best)}">${best}</div><div class="stat-lbl">最高スコア</div></div>
     <div class="stat-card"><div class="stat-val">${rentText(cheapest)}</div><div class="stat-lbl">最安家賃</div></div>
     <div class="stat-card"><div class="stat-val">${avg}</div><div class="stat-lbl">平均スコア</div></div>
-    <div class="stat-card"><div class="stat-val" style="color:var(--red)">${liked}</div><div class="stat-lbl">いいね</div></div>
+    <div class="stat-card clickable" onclick="openLikedList()" title="いいね一覧を見る"><div class="stat-val" style="color:var(--red)">${liked}</div><div class="stat-lbl">いいね &rarr;</div></div>
   `;
 }
 
@@ -986,6 +1052,10 @@ function applySort() {
     const aDis = a.disliked ? 1 : 0;
     const bDis = b.disliked ? 1 : 0;
     if (aDis !== bDis) return aDis - bDis;
+    // Priority stations (パートナー通勤優先) bubble to top
+    const aPri = PRIORITY_STATIONS.has(a.nearest_station_name) ? 0 : 1;
+    const bPri = PRIORITY_STATIONS.has(b.nearest_station_name) ? 0 : 1;
+    if (aPri !== bPri) return aPri - bPri;
     const va = getSortVal(a, sortKey);
     const vb = getSortVal(b, sortKey);
     if (typeof va === 'string') {
@@ -1371,7 +1441,8 @@ function closeDetail() { $('#overlay').classList.remove('open'); document.body.s
 $('#overlay').addEventListener('click', e => { if (e.target === $('#overlay')) closeDetail(); });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if ($('#compare-overlay').classList.contains('open')) { closeComparison(); }
+    if ($('#liked-overlay').classList.contains('open')) { closeLikedList(); }
+    else if ($('#compare-overlay').classList.contains('open')) { closeComparison(); }
     else { closeDetail(); }
   }
 });
@@ -1581,6 +1652,68 @@ function toggleDislike(idx) {
   if (disliked) { p.liked = false; p.maybe = false; }
   const orig = allData.find(d => d.url === p.url);
   if (orig) { orig.disliked = disliked; if (disliked) { orig.liked = false; orig.maybe = false; } }
+  renderCards(); renderStats(); updatePrefsBar();
+  scheduleAutoSync();
+}
+
+// Liked list modal
+let likedList = [];
+function openLikedList() {
+  likedList = allData.filter(p => p.liked);
+  $('#liked-count').textContent = likedList.length ? `(${likedList.length}件)` : '';
+  const body = $('#liked-body');
+  if (likedList.length === 0) {
+    body.innerHTML = '<div class="liked-empty"><div class="liked-empty-icon">&#9825;</div><p>いいねした物件はまだありません</p></div>';
+  } else {
+    body.innerHTML = likedList.map((p, i) => renderLikedItemHtml(p, i)).join('');
+  }
+  $('#liked-overlay').classList.add('open');
+}
+function closeLikedList() { $('#liked-overlay').classList.remove('open'); }
+
+function renderLikedItemHtml(p, idx) {
+  const imgUrl = fixImageUrl(p.image_url);
+  return `
+  <div class="liked-item" onclick="openLikedDetail(${idx})">
+    ${imgUrl ? `<img class="liked-item-img" src="${esc(imgUrl)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=liked-item-placeholder>&#127968;</div>'">` : '<div class="liked-item-placeholder">&#127968;</div>'}
+    <div class="liked-item-info">
+      <div class="liked-item-name">
+        <span class="liked-item-source" style="background:${sourceColor(p.source)}18;color:${sourceColor(p.source)}">${esc(p.source)}</span>
+        ${esc(p.name)}
+      </div>
+      <div class="liked-item-address">${esc(p.address)}</div>
+      <div class="liked-item-meta">
+        <span class="meta-chip rent">${rentText(p.total_rent)}/月</span>
+        <span class="meta-chip">${esc(p.layout || '-')}</span>
+        <span class="meta-chip">${p.area_sqm}m&sup2;</span>
+        <span class="meta-chip">${esc(p.year_built || '-')}</span>
+      </div>
+      <div class="liked-item-station">${esc(p.station_access)}</div>
+    </div>
+    <div class="liked-item-actions">
+      <div class="liked-item-score" style="background:${scoreBg(p.score)};color:${scoreColor(p.score)}">${p.score}<small>/100</small></div>
+      <button class="like-btn liked" onclick="event.stopPropagation();unlikeFromList(${idx})" title="いいね解除" style="font-size:22px">&#10084;</button>
+    </div>
+  </div>`;
+}
+
+function openLikedDetail(idx) {
+  const p = likedList[idx];
+  if (!p) return;
+  let fi = filtered.findIndex(f => f.url === p.url);
+  if (fi === -1) { filtered.push(p); fi = filtered.length - 1; }
+  closeLikedList();
+  showDetail(fi);
+}
+
+function unlikeFromList(idx) {
+  const p = likedList[idx];
+  if (!p) return;
+  LikesStore.toggle(p.url);
+  p.liked = false;
+  const orig = allData.find(d => d.url === p.url);
+  if (orig) orig.liked = false;
+  openLikedList();
   renderCards(); renderStats(); updatePrefsBar();
   scheduleAutoSync();
 }

@@ -26,6 +26,9 @@ AREA_SLUGS = [
     "shibuya-city",   # 渋谷区 (13113)
     "shinjuku-city",  # 新宿区 (13104)
     "minato-city",    # 港区 (13103)
+    "meguro-city",    # 目黒区 (13110)
+    "setagaya-city",  # 世田谷区 (13112)
+    "shinagawa-city", # 品川区 (13109) — 目黒駅
 ]
 
 FEMALE_KEYWORDS = ("女性限定", "女性専用", "女性のみ", "レディース")

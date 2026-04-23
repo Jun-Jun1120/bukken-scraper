@@ -839,7 +839,7 @@ function showDetail(idx) {
       </div>
       ${p.comment ? `<div class="detail-comment"><div class="detail-comment-label">AIコメント</div>${esc(p.comment)}</div>` : ''}
     </div>
-    <div class="detail-link"><a href="${esc(p.url)}" target="_blank">物件サイトで詳細を見る</a></div>
+    ${p.url ? `<div class="detail-link"><a href="${esc(p.url)}" target="_blank">物件サイトで詳細を見る</a></div>` : '<div class="detail-link" style="color:var(--muted);font-size:13px">元サイトのURLが取得できませんでした</div>'}
   `;
   $('#overlay').classList.add('open');
   document.body.style.overflow = 'hidden';
