@@ -39,12 +39,8 @@
 
         - name: Install Playwright browser
           run: |
-            if [ ! -d ~/.cache/ms-playwright/chromium-* ]; then
-              playwright install chromium
-              playwright install-deps
-            else
-              playwright install-deps
-            fi
+            playwright install chromium
+            playwright install-deps
 
         - name: Run scraper
           env:
